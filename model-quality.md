@@ -29,8 +29,8 @@ Each task is scored 1–5 on:
 |---|---|---|---|---|---|---|---|---|---|---|
 | T1 chords | mini | mechanical | **merged** | 8.4 min | 0 | 4 | 5 | 3 | 5 | 3 |
 | T2 keymap | mini | mechanical, some logic | **merged** (review fixed a latent bug) | 11.2 min | 0 | 3 | 4 | 3 | 5 | 3 |
-| T5a SMF | mini | byte-level, spec-heavy | pending | | | | | | | |
-| T3 voicing | chiz | algorithmic | attempt 1 failed (no output); attempt 2 running | 10 min (#1) | 1 | | | | | |
+| T5a SMF | mini | byte-level, spec-heavy | attempt 1 failed (no output, stale worktree → 8k cap); re-queued | 5.3 min (#1) | 1 | | | | | |
+| T3 voicing | chiz | algorithmic | **merged** (attempt 2); differential-tested vs reference | 10 + 13 min | 1 | 5 | 5 | 4 | 5 | 1 |
 
 ## Per-task notes
 
@@ -67,6 +67,27 @@ Each task is scored 1–5 on:
 - **Lesson:** a dense 27B reasoning model will happily think for 30k+ tokens on a hard spec. Give it room *and* tell it to iterate.
 
 
+### T3 voicing: chiz, attempt 2 merged
+
+- **Timeline:** dispatched 14:12:45. It reasoned for ~9 min (≈25k tokens at ~61 tok/s), first edit 14:22:46, 3/9 tests at 14:23:45, 7/9 at 14:24:30, **9/9 and clippy clean at 14:25:21**, report at 14:25:41 (776 s total). Once it started writing, it went from first edit to green in **2.5 min**: compile errors (a missing lifetime, type mismatches) fixed in about 4 iterations.
+- **It flagged two genuine ambiguities in Claude's spec:** the tie-break for a one-chord loop, and what the "largest single-voice move" means when voice counts differ. That's high-value reporting.
+- **Differential test against Claude's reference** (2,000 random progressions, octaves −1..1, 1–8 chords):
+  - `voice_cycle` total cost was **identical in all 2,000**. Both are exact optimisers.
+  - The greedy `next` differed in 191 progressions. Isolated per step, **every difference is a tie on motion between voicings with different voice counts (40 cases), and 0 are real errors.** chiz breaks those ties with the largest move along the DTW alignment; Claude's reference ignores that tie-break when sizes differ. **chiz's choice is the more principled one.**
+- **Versus the reference:**
+  - Structure is comparable: a DTW that returns the alignment path (the reference returns only the cost), plus clean `pick_least_motion`, `pick_centre` and `score` helpers.
+  - Slightly more verbose: hand-written `if` chains for the tie-break tuple, where the reference uses `min_by_key` on a tuple.
+  - Edge case: `pick_*` and `voice_cycle` index `cands[0]` and would panic if a chord had no candidates (impossible with the current bands, but unguarded). The reference returns empty.
+  - `candidates` builds the cartesian product by cloning vectors; fine at ≤3^5.
+- **Verdict:** **correct and production-quality code**, but very expensive to get: 2 attempts, ~21 min of reasoning, ~64k output tokens (half wasted) for ~200 lines that took the reference ~2k tokens to write.
+
+### T5a SMF: Mac mini, attempt 1 failed with no output
+
+- **What happened:** read both files, then its first reasoning reply **hit `finish: length` at exactly 8,192 tokens**, then a second reasoning turn ended with nothing (317 s total). The new `[NO CHANGES]` check caught it.
+- **Root cause (harness, not model):** its worktree was created at 14:01 for the run that was killed, and `dispatch.sh` reused it without merging `main`. So it never had the project `opencode.json` (committed 14:12) that raises the mini's output cap to 32,768. Verified with `opencode debug config`: the stale tree resolved 8,192; after a fast-forward it resolves 32,768.
+- **Fix:** `dispatch.sh` now merges `main` into any reused clean worktree. T5a is re-queued behind the mini's current tasks.
+- **Model note:** at 8k the mini also spends its whole reply budget reasoning on a spec-heavy task. With the cap at 32k it may still reason long; worth retrying with thinking off if the retry repeats this.
+
 ## Chronological timeline
 
 All times are local (Nov 10, 2026), taken from logs, git and opencode's session database.
@@ -97,6 +118,11 @@ All times are local (Nov 10, 2026), taken from logs, git and opencode's session 
 | 14:22:46 | **chiz's first line of code of the session**, 21 min after first dispatch. | — |
 | 14:23:45 | T3: 3/9 tests (`bass_note`, `motion`, `candidates` work). | — |
 | 14:24 | **Review catches a T2 bug the tests missed:** the split decoder computed the root relative to the split, which is only correct for splits that are multiples of 12. Claude adds a test with an F split (fails, as expected), fixes one line, merges. | The test gap was Claude's; the bug was the model's. |
+| 14:25:21 | **T3 attempt 2: 9/9 and clippy clean.** First edit to green in 2.5 min after ~9 min of reasoning. | — |
+| 14:26 | Differential test of T3 vs Claude's reference on 2,000 random progressions: identical loop costs; 40 greedy differences, all motion ties with different voice counts (the ambiguity chiz flagged), 0 errors. **T3 merged.** | chiz's tie-break is better than the reference's. |
+| 14:26:19 | **T5a fails with no output:** `finish: length` at 8,192. Root cause: stale worktree from the killed 14:01 run, so no project `opencode.json`. | Same stale-worktree problem as T2. `dispatch.sh` now syncs reused worktrees. |
+| 14:27 | Mini queue continues (T8 → T6 → T5b, then the T5a retry). | — |
+| 14:28 | **Experiment:** confirmed chiz's llama.cpp ignores the model name and honours `chat_template_kwargs.enable_thinking=false` (2-token reply, 0 reasoning). Added a `qwen3.8-27b-nothink` variant; **T4 glide dispatched to chiz with thinking off.** | Tests recommendation #4 directly: does a no-thinking dense 27B translate a precise spec faster without losing correctness? |
 
 ## Token ledger: delegating vs doing it myself
 

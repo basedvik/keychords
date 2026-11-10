@@ -5,7 +5,7 @@ fn p(glide: f32, strum: f32) -> Params {
     Params { glide_ms: glide, strum_ms: strum, sample_rate: 1000.0 }
 }
 fn close(a: Option<f32>, b: f32) -> bool {
-    a.map_or(false, |a| (a - b).abs() < 1e-4)
+    a.is_some_and(|a| (a - b).abs() < 1e-4)
 }
 
 #[test]
