@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "MIT"
+
+[workspace.dependencies]
+chords = { path = "crates/chords" }
+keymap = { path = "crates/keymap" }
+voicing = { path = "crates/voicing" }
+midi = { path = "crates/midi" }
