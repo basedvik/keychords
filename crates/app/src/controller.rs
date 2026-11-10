@@ -1,6 +1,8 @@
 //! UI-thread logic: key presses → chords → voicings → engine commands. No Rune types here,
 //! so it is unit-testable; `main.rs` adapts Rune key events into `keymap::KeyInput`.
 
+#![allow(dead_code)]
+
 use chords::{Chord, PitchClass, Quality};
 use keymap::{KeyAction, KeyInput, KeyMap};
 use midi::export::{self, LoopExport};
@@ -272,7 +274,7 @@ impl Controller {
     /// `s` (silent), or `root:quality_index`.
     pub fn state_bytes(&self) -> Vec<u8> {
         let mut lines = Vec::new();
-        lines.push(format!("v=1"));
+        lines.push("v=1".to_string());
         lines.push(format!("bars={}", self.lp.bars));
         lines.push(format!("per_bar={}", self.lp.per_bar));
         lines.push(format!("bpm={}", self.clock.bpm));
@@ -283,7 +285,7 @@ impl Controller {
         let slot_strs: Vec<String> = self.lp.slots.iter().map(|s| match s {
             Slot::Empty => "-".to_string(),
             Slot::Silent => "s".to_string(),
-            Slot::Chord(ch) => format!("{}:{}", ch.root as u8, ch.quality.index()),
+            Slot::Chord(ch) => format!("{}:{}", ch.root, ch.quality.index()),
         }).collect();
         lines.push(format!("slots={}", slot_strs.join(",")));
         lines.join("\n").into_bytes()
@@ -341,9 +343,9 @@ impl Controller {
             } else if s == "s" {
                 Some(Slot::Silent)
             } else {
-                let Some((root_s, qi_s)) = s.split_once(':') else { return None };
-                let root: PitchClass = match root_s.parse() { Ok(v) => v, Err(_) => return None };
-                let qi: usize = match qi_s.parse() { Ok(v) => v, Err(_) => return None };
+                let (root_s, qi_s) = s.split_once(':')?;
+                let root: PitchClass = root_s.parse().ok()?;
+                let qi: usize = qi_s.parse().ok()?;
                 let quality = Quality::from_index(qi)?;
                 Some(Slot::Chord(Chord::new(root, quality)))
             }
@@ -414,7 +416,7 @@ impl Controller {
         let total_slots = (bars * per_bar) as usize;
         self.lp.bars = bars;
         self.lp.per_bar = per_bar;
-        self.lp.slots = chords.into_iter().map(|ch| Slot::Chord(ch)).chain(
+        self.lp.slots = chords.into_iter().map(Slot::Chord).chain(
             vec![Slot::Silent; total_slots.saturating_sub(n_slots)]
         ).collect();
         self.cursor = 0;
@@ -425,7 +427,6 @@ impl Controller {
 
     /// Render one loop pass + 1 s tail as a 24-bit WAV file using a fresh [`Engine`].
     pub fn render_wav(&self, sample_rate: u32) -> Vec<u8> {
-        use glide::Params;
         let slot_beats = self.lp.slot_beats();
         let samples_per_beat = sample_rate as f64 * 60.0 / self.clock.bpm;
         let slot_samples = (slot_beats * samples_per_beat).round() as usize;
@@ -435,54 +436,36 @@ impl Controller {
         let total = loop_samples + tail_samples;
 
         let mut engine = Engine::new(sample_rate as f32);
-        let params = Params {
-            glide_ms: self.glide_ms,
-            strum_ms: self.strum_ms,
-            sample_rate: sample_rate as f32,
-        };
-        engine.glider.set_params(params);
 
+        // Schedule all slot boundaries up front.
         let mut midi = Vec::new();
-        let mut prev_voicing = None;
         for (slot_idx, _slot) in self.lp.slots.iter().enumerate() {
-            let voicing = self.loop_voicing(slot_idx);
-            let notes = match &voicing {
+            let at = slot_idx as u64 * slot_samples as u64;
+            match self.loop_voicing(slot_idx) {
                 Some(v) => {
-                    let mut n = vec![v.bass];
-                    n.extend(&v.upper);
-                    Notes::from_slice(&n)
+                    let notes = Notes::from_slice(&{
+                        let mut n = vec![v.bass];
+                        n.extend(v.upper);
+                        n
+                    });
+                    engine.handle(Command::PlayAt(notes, at), &mut midi);
                 }
                 None => {
-                    // Silent slot
                     engine.handle(Command::Release, &mut midi);
-                    prev_voicing = None;
-                    continue;
                 }
-            };
-            // Only re-struck if voicing changed from previous (same as poll logic)
-            if voicing == prev_voicing {
-                continue;
             }
-            let at = slot_idx as u64 * slot_samples as u64;
-            engine.handle(Command::PlayAt(notes, at), &mut midi);
-            prev_voicing = voicing;
         }
 
-        // Render
+        // Render into buffers using process().
         let mut left = vec![0.0f32; total];
         let mut right = vec![0.0f32; total];
-        let mut off = 0;
-        while off < total {
-            let end = (off + 32).min(total);
-            // Advance engine time to match render position
-            engine.now = off as u64;
-            for _ in (off..end).step_by(32) {
-                let chunk_end = (off + 32).min(total);
-                let lc = &mut left[off..chunk_end];
-                let rc = &mut right[off..chunk_end];
-                engine.process(lc, rc, &mut midi);
-                off = chunk_end;
-            }
+        let mut off = 0u64;
+        while off < total as u64 {
+            let chunk = (total as u64 - off).min(512u64);
+            let lc = &mut left[off as usize..(off + chunk) as usize];
+            let rc = &mut right[off as usize..(off + chunk) as usize];
+            engine.process(lc, rc, &mut midi);
+            off += chunk;
         }
 
         crate::wav::wav_24bit(&left, &right, sample_rate)
@@ -505,14 +488,14 @@ fn recognize(smf: &Smf) -> Vec<Chord> {
             }
         }
     }
-    let mut prev: Option<Vec<u8>> = None;
+    let mut _prev: Option<Vec<u8>> = None;
     let mut chords = Vec::new();
     if let Some(pcs) = groups.get(&0) {
         let pcs_vec: Vec<u8> = pcs.iter().copied().collect();
         if !pcs_vec.is_empty() {
             let root = pcs_vec[0];
             chords.push(Chord::new(root, Quality::Maj));
-            prev = Some(pcs_vec);
+            _prev = Some(pcs_vec);
         }
     }
     chords

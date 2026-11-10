@@ -1,5 +1,7 @@
 //! 24-bit PCM WAV file generation.
 
+#![allow(dead_code)]
+
 const PCM: u16 = 1;
 const BITS_24: u16 = 24;
 const SCALE: i32 = 8_388_607;
@@ -12,11 +14,10 @@ pub fn wav_24bit(left: &[f32], right: &[f32], sample_rate: u32) -> Vec<u8> {
     let n = left.len();
     assert_eq!(left.len(), right.len(), "left and right must be same length");
     let sample_data_size = n as u32 * 6; // 2 channels * 3 bytes per sample
-    let file_size = 4 + // RIFF chunk descriptor size minus 8
-        8 + // "WAVE"
+    let file_size = 4 + // "WAVE"
         24 + // fmt chunk: 8 (header) + 16 (fmt data)
         8 + // data chunk header
-        sample_data_size as u32;
+        sample_data_size;
 
     let mut buf = Vec::with_capacity(file_size as usize);
 
@@ -62,14 +63,14 @@ mod tests {
         let riff_size = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
         assert_eq!(&buf[8..12], b"WAVE");
         assert_eq!(&buf[12..16], b"fmt ");
-        let fmt_size = u32::from_le_bytes([buf[16], buf[17], buf[18], buf[19]]);
+        let _fmt_size = u32::from_le_bytes([buf[16], buf[17], buf[18], buf[19]]);
         let fmt = u16::from_le_bytes([buf[20], buf[21]]);
         let channels = u16::from_le_bytes([buf[22], buf[23]]);
         let sr = u32::from_le_bytes([buf[24], buf[25], buf[26], buf[27]]);
-        let byte_rate = u32::from_le_bytes([buf[28], buf[29], buf[30], buf[31]]);
-        let block_align = u16::from_le_bytes([buf[32], buf[33]]);
+        let _byte_rate = u32::from_le_bytes([buf[28], buf[29], buf[30], buf[31]]);
+        let _block_align = u16::from_le_bytes([buf[32], buf[33]]);
         let bits = u16::from_le_bytes([buf[34], buf[35]]);
-        let data_off = 40;
+        let data_off = 36;
         let data_tag = &buf[data_off..data_off + 4];
         assert_eq!(data_tag, b"data");
         let data_size = u32::from_le_bytes([
@@ -82,7 +83,7 @@ mod tests {
     fn wav_header_fields_are_correct() {
         let buf = wav_24bit(&[0.0], &[0.0], 48000);
         let (riff_size, fmt, channels, sr, bits, data_size) = parse_header(&buf);
-        assert_eq!(riff_size, 50); // 8 (data) + 24 (fmt) + 8 (WAVE + data header) - 8 ... actually 4 + 8 + 16 + 8 + 6 - 8 = 54? Let me check
+        assert_eq!(riff_size, 42); // 4 (WAVE) + 24 (fmt) + 8 + 6 (data) = 42
         assert_eq!(fmt, 1);
         assert_eq!(channels, 2);
         assert_eq!(sr, 48000);
