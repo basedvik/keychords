@@ -191,7 +191,8 @@ fn glides_ramp_the_bend_before_the_strike() {
     let at_480: Vec<Event> = smf.tracks[1]
         .events
         .iter()
-        .filter_map(|(t, ev)| (*t == 480).then(|| ev.clone()))
+        .filter(|(t, _)| *t == 480)
+        .map(|(_, ev)| ev.clone())
         .collect();
     assert_eq!(at_480, vec![
         Event::NoteOff { ch: 1, note: 60, vel: 0 },
