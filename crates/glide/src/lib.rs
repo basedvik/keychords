@@ -200,7 +200,7 @@ impl Glider {
 
     /// Sample at which `voice`'s latest slide lands (its onset for a first chord).
     pub fn lands_at(&self, voice: usize) -> Option<u64> {
-        self.slides.get(voice)?.map(|s| if s.start == s.end { s.onset } else { s.end })
+        self.slides.get(voice)?.map(|s| s.end)
     }
 
     fn schedule(
