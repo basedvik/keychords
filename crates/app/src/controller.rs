@@ -208,6 +208,11 @@ impl Controller {
             .collect();
     }
 
+    /// The voicing loop slot `i` plays, if it sounds.
+    pub fn loop_voicing(&self, i: usize) -> Option<Voicing> {
+        self.loop_voicings.get(i).cloned().flatten()
+    }
+
     fn toggle_play(&mut self, now: u64) -> Vec<Command> {
         if self.mode != Mode::Loop {
             return Vec::new();
