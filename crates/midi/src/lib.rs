@@ -1,5 +1,6 @@
-//! Standard MIDI File (SMF) reading and writing.
+//! MIDI: Standard MIDI Files, live MPE and plain-note output, loop export, chord recognition.
 
-pub mod smf;
-pub mod mpe;
 pub mod export;
+pub mod mpe;
+pub mod recognize;
+pub mod smf;
