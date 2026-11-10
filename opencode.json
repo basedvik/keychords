@@ -3,12 +3,42 @@
   "provider": {
     "chiz": {
       "models": {
-        "qwen3.8-27b": { "limit": { "context": 262144, "output": 100000 } }
+        "qwen3.8-27b": {
+          "limit": {
+            "context": 262144,
+            "output": 100000
+          }
+        },
+        "qwen3.8-27b-nothink": {
+          "name": "Qwen 3.8 27B, thinking off (chiz)",
+          "reasoning": false,
+          "tool_call": true,
+          "temperature": true,
+          "attachment": false,
+          "limit": {
+            "context": 262144,
+            "output": 32768
+          },
+          "options": {
+            "chat_template_kwargs": {
+              "enable_thinking": false
+            }
+          },
+          "cost": {
+            "input": 0,
+            "output": 0
+          }
+        }
       }
     },
     "llamacpp": {
       "models": {
-        "qwen3.6-35b-a3b-uncensored": { "limit": { "context": 131072, "output": 32768 } }
+        "qwen3.6-35b-a3b-uncensored": {
+          "limit": {
+            "context": 131072,
+            "output": 32768
+          }
+        }
       }
     }
   }

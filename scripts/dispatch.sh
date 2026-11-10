@@ -14,6 +14,7 @@ case $machine in
         alias=qwen3.6-35b-a3b-uncensored; key=none ;;
   *) echo "unknown machine $machine" >&2; exit 2 ;;
 esac
+model=${MODEL_OVERRIDE:-$model}
 [ "$(curl -s -m 5 -o /dev/null -w '%{http_code}' "$base/health")" = 200 ] || { echo "$machine down" >&2; exit 3; }
 if [ -n "$key" ]; then
   live=$(curl -s -m 5 -H "Authorization: Bearer $key" "$base/props" \
