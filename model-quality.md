@@ -29,7 +29,10 @@ Each task is scored 1–5 on:
 |---|---|---|---|---|---|---|---|---|---|---|
 | T1 chords | mini | mechanical | **merged** | 8.4 min | 0 | 4 | 5 | 3 | 5 | 3 |
 | T2 keymap | mini | mechanical, some logic | **merged** (review fixed a latent bug) | 11.2 min | 0 | 3 | 4 | 3 | 5 | 3 |
-| T5a SMF | mini → chiz (thinking off) | byte-level, spec-heavy | mini #1 failed (stale worktree, 8k cap); chiz running | 5.3 min (#1) | 2 | | | | | |
+| T5a SMF | mini → chiz (thinking off) | byte-level, spec-heavy | **merged**; fuzzed 20k inputs, no panics | 5.3 (mini #1) + 1.8 + 3 min | 2 | 5 | 5 | 4 | 4 | 3 |
+| T5b MPE | mini (thinking on) | byte-level | **merged** | 4.4 min | 0 | 5 | 5 | 3 | 5 | 5 |
+| T9 MIDI export (+ own tests) | chiz (thinking **on**) | spec-heavy, writes tests | **merged**; 15 good tests, 6 ambiguities resolved | 25.6 min | 0 | 5 | 5 | 4 | 4 | 2 |
+| T6 synth | mini | open-ended DSP | #1 (thinking on) failed after 27 min; #2 (thinking off, pseudo-code) running | 27 min (#1) | 1 | | | | | |
 | T4 glide | chiz (thinking **off**) | stateful scheduling | **merged** after 1 review-note retry + review fix | 3.5 + 2.2 min | 1 | 4 | 4 | 4 | 5 | 4 |
 | T8 sequencer | mini | mechanical + edge cases | **merged** | 6.2 min | 0 | 5 | 5 | 4 | 5 | 5 |
 | T3 voicing | chiz | algorithmic | **merged** (attempt 2); differential-tested vs reference | 10 + 13 min | 1 | 5 | 5 | 4 | 5 | 1 |
@@ -136,6 +139,16 @@ All times are local (Nov 10, 2026), taken from logs, git and opencode's session 
 | 14:35 | T5a moved from the mini queue to chiz (thinking off); the mini's pending retry cancelled. Specs written for T9 (MIDI export), T10 (chord recognition) and T12 (17 more sounds), all with worker-written tests. | — |
 | 14:36:40 | T5a (chiz) wrote `smf.rs`; it can't go green because **Claude's verify command also ran the MPE stub tests**, which were added after the spec was written. Spec fixed; T5a restarted in its worktree. | Spec drift: a verify command must only cover the task's own tests. |
 | 14:37 | **Collateral damage:** `pkill -f "T5a: midi::smf"` also matched the mini's queue script (that text was in its command line) and killed it. T6's opencode process survived; T5b's automatic start was lost and is now re-queued, waiting on **T6's PID**. | Kill and wait by PID, never by pattern. |
+| 14:38 | T5a (chiz, thinking off) stuck at 1/7: VLQ continuation bit on the wrong bytes. Claude tried to stop it to switch to thinking on, but the kill command failed (zsh doesn't split a multi-line PID list), and meanwhile **T5a found the bug itself** (14:38:31). | A lucky failure; patience can beat intervention. |
+| 14:39:36 | **T5a: 7/7**; clippy clean at 14:40. **Fuzzed by Claude: 20,000 corrupted inputs, no panics.** Merged. | Parser robustness matters for importing users' files. |
+| 14:40:42 | **T9 (MIDI export) dispatched to chiz with thinking ON**, since it writes its own tests. | — |
+| 14:42–14:58 | **T6 synth (mini, thinking on) silent for 16 min:** one reply reached 31.5k of its 32.8k-token cap. Its code didn't compile (used a non-existent `rand` crate, mixed f32/f64, borrow conflicts). Stopped after 27 min. | A whole multi-patch DSP engine is too open-ended for the mini as a single task. |
+| 14:59 | **T6 retry spec = numbered pseudo-code** ("translate this design", f32 only, no crates). Mini thinking-off variant added. T5b MPE started on the mini (PID-based queue). | Tests recommendation #3: Claude writes the algorithm, the worker types it. |
+| 14:58:36 | T9 (thinking on) first write after ~18 min of deliberation; 15 self-written tests; 14/15 → 15/15 by 15:03:36. | — |
+| 15:04:01 | **T5b MPE (mini): 6/6**, about 2 min from first edit. Merged (minor: sized for 8 voices instead of 7). | — |
+| 15:06:23 | **T9 done.** Its report resolved **6 spec ambiguities**, each reasonably. Its tests encode the spec's formula with hand-checked constants (Claude re-derived 9036 independently): real tests, not fitted to the code. One clippy lint in its own test file was hidden by the MPE stub warnings, and its report wrongly blamed all of them on the stubs. Claude fixed the lint; merged. | Workers writing their own tests worked well when thinking was on. |
+| 15:06:57 | **T6 retry (mini, thinking off, pseudo-code): 5/6 synth tests about 2.5 min in.** Attempt 1: 27 min, didn't compile. | Pseudo-code specs make the mini capable of a task it otherwise failed. |
+| 15:07:41 | T10 (chord recognition, chiz, thinking off) wrote `recognize.rs` ~1.5 min after dispatch; working through compile errors in its own tests. | — |
 
 ## Token ledger: delegating vs doing it myself
 
