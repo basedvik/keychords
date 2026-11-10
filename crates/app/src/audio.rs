@@ -44,7 +44,7 @@ pub fn start() -> Result<Audio, String> {
 
     let stream = device
         .build_output_stream(
-            config.clone(),
+            config,
             move |data: &mut [f32], _| {
                 while let Ok(cmd) = cmd_rx.pop() {
                     engine.handle(cmd, &mut midi_buf);
