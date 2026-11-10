@@ -38,6 +38,26 @@
             "context": 131072,
             "output": 32768
           }
+        },
+        "qwen3.6-35b-a3b-nothink": {
+          "name": "Qwen3.6-35B-A3B, thinking off (mini)",
+          "reasoning": false,
+          "tool_call": true,
+          "temperature": true,
+          "attachment": false,
+          "limit": {
+            "context": 131072,
+            "output": 32768
+          },
+          "options": {
+            "chat_template_kwargs": {
+              "enable_thinking": false
+            }
+          },
+          "cost": {
+            "input": 0,
+            "output": 0
+          }
         }
       }
     }
