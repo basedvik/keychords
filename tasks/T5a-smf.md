@@ -9,12 +9,15 @@ Reference:
 - Event = VLQ delta + message. Channel messages: 0x80 note off, 0x90 note on, 0xB0 CC, 0xE0 pitch bend (LSB then MSB, 7 bits each), low nibble = channel. 0xC0/0xD0 take 1 data byte, 0xA0 takes 2: parse and skip them. Meta: 0xFF type VLQ-length data. SysEx: 0xF0 or 0xF7, VLQ length, data: skip.
 - Running status: a data byte (< 0x80) where a status is expected reuses the previous channel status.
 
+## Note
+`crates/midi/src/mpe.rs` is another worker's task and still has `todo!()` stubs: do not touch it. The verify command runs only the SMF tests and tells clippy to ignore the stubs' unused variables.
+
 ## Files you may edit
 - crates/midi/src/smf.rs
 
 ## Verify
 ```
-cargo test -p midi && cargo clippy -p midi --all-targets -- -D warnings
+cargo test -p midi --test smf && cargo clippy -p midi --all-targets -- -D warnings -A unused-variables -A dead-code
 ```
 
 ## Rules
