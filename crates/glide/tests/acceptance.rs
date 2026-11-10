@@ -138,3 +138,11 @@ fn set_params_applies_to_later_chords() {
     g.play_now(&[52], 1000);
     assert_eq!(g.lands_at(0), Some(1200));
 }
+
+#[test]
+fn zero_glide_lands_where_each_chord_starts() {
+    let mut g = Glider::new(p(0.0, 0.0));
+    g.play_now(&[48], 10);
+    g.play_now(&[55], 500);
+    assert_eq!(g.lands_at(0), Some(500), "not the first chord's onset");
+}
