@@ -30,7 +30,7 @@ Each task is scored 1–5 on:
 | T1 chords | mini | mechanical | **merged** | 8.4 min | 0 | 4 | 5 | 3 | 5 | 3 |
 | T2 keymap | mini | mechanical, some logic | pending | | | | | | | |
 | T5a SMF | mini | byte-level, spec-heavy | pending | | | | | | | |
-| T3 voicing | chiz | algorithmic | pending | | | | | | | |
+| T3 voicing | chiz | algorithmic | attempt 1 failed (no output); attempt 2 running | 10 min (#1) | 1 | | | | | |
 
 ## Per-task notes
 
@@ -44,6 +44,17 @@ Each task is scored 1–5 on:
   - `root_name(pc)` indexes `[pc as usize]` without `% 12`, so it panics on `pc ≥ 12` even though it's public. `Chord::new` wraps the root but `root_name` doesn't. It's an edge case the tests didn't cover, and the reference guards it.
   - `pitch_classes` and `name` are the same as what I'd write.
 - **Serving note:** the first ~6 min ran with 3 workers sharing the mini's 4 slots, at about 7.7 tok/s per stream (31 tok/s total). Alone on one slot it measured **39.5 tok/s**. The mini now runs one task at a time.
+
+### T3 voicing: chiz, attempt 1 failed with no output
+
+- **What happened:** it read the spec, the tests and the `chords` crate (14:01–14:02), then opened one reasoning turn and **never wrote a line**. chiz's slot showed `decoded 32000, remain 0` against a 55.6k-token prompt. The whole reply budget went on thinking. opencode got back an empty reply, treated the session as finished, and exited cleanly at 600 s with no error.
+- **Whose fault:** partly the harness. opencode caps each reply at 32,000 tokens (`OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX`), below the 32,768 set in your config. That's tight for a reasoning model given an algorithm-design task. Partly the model: it tried to solve the entire crate in its head instead of writing code and letting the tests guide it.
+- **Context was not the issue:** 55.6k of 262k used.
+- **Mitigations for attempt 2:**
+  - output cap raised to 100k (project `opencode.json` plus the env var)
+  - the spec now requires incremental steps
+  - `dispatch.sh` flags runs that end with no changes
+- **Lesson:** a dense 27B reasoning model will happily think for 30k+ tokens on a hard spec. Give it room *and* tell it to iterate.
 
 ## Summary
 

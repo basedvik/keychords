@@ -1,5 +1,6 @@
 //! keychords standalone app (Rune UI).
 
+mod controller;
 mod engine;
 
 use rune::tok::{self, type_};
