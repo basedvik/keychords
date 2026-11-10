@@ -25,10 +25,15 @@ fn period(x: &[f32]) -> usize {
         }
         (lag, num / den)
     });
-    // First lag within 3% of the global best avoids octave errors on harmonic-rich tones.
+    // The first local maximum within 3% of the global best: avoids octave errors on
+    // harmonic-rich tones, and the local-maximum check stops a broad, sine-like peak from
+    // being read early (cos(2*pi*4/109) is already within 3% of the peak at 109).
     let all: Vec<_> = best.collect();
     let top = all.iter().map(|&(_, c)| c).fold(f64::MIN, f64::max);
-    all.iter().find(|&&(_, c)| c >= top * 0.97).unwrap().0
+    (1..all.len() - 1)
+        .find(|&i| all[i].1 >= top * 0.97 && all[i].1 >= all[i - 1].1 && all[i].1 >= all[i + 1].1)
+        .map(|i| all[i].0)
+        .unwrap()
 }
 
 #[test]
