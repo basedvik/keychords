@@ -3,6 +3,7 @@
 mod audio;
 mod controller;
 mod engine;
+mod wav;
 
 use std::sync::atomic::Ordering;
 use std::time::Duration;
