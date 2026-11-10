@@ -32,7 +32,8 @@ Each task is scored 1–5 on:
 | T5a SMF | mini → chiz (thinking off) | byte-level, spec-heavy | **merged**; fuzzed 20k inputs, no panics | 5.3 (mini #1) + 1.8 + 3 min | 2 | 5 | 5 | 4 | 4 | 3 |
 | T5b MPE | mini (thinking on) | byte-level | **merged** | 4.4 min | 0 | 5 | 5 | 3 | 5 | 5 |
 | T9 MIDI export (+ own tests) | chiz (thinking **on**) | spec-heavy, writes tests | **merged**; 15 good tests, 6 ambiguities resolved | 25.6 min | 0 | 5 | 5 | 4 | 4 | 2 |
-| T6 synth | mini | open-ended DSP | #1 (thinking on) failed after 27 min; #2 (thinking off, pseudo-code) running | 27 min (#1) | 1 | | | | | |
+| T6 synth | mini | open-ended DSP | **merged** via pseudo-code retry (thinking off); report misattributed a fix | 27 (#1) + 12.6 min | 1 | 5 | 5 | 4 | 3 | 3 |
+| T10 chord recognition (+ own tests) | chiz | exact formula, writes tests | #1 (thinking off): correct code, **wrong tests** (bad MIDI numbers); #2 (thinking on) running | 8 min (#1) | 1 | | | | | |
 | T4 glide | chiz (thinking **off**) | stateful scheduling | **merged** after 1 review-note retry + review fix | 3.5 + 2.2 min | 1 | 4 | 4 | 4 | 5 | 4 |
 | T8 sequencer | mini | mechanical + edge cases | **merged** | 6.2 min | 0 | 5 | 5 | 4 | 5 | 5 |
 | T3 voicing | chiz | algorithmic | **merged** (attempt 2); differential-tested vs reference | 10 + 13 min | 1 | 5 | 5 | 4 | 5 | 1 |
@@ -149,6 +150,12 @@ All times are local (Nov 10, 2026), taken from logs, git and opencode's session 
 | 15:06:23 | **T9 done.** Its report resolved **6 spec ambiguities**, each reasonably. Its tests encode the spec's formula with hand-checked constants (Claude re-derived 9036 independently): real tests, not fitted to the code. One clippy lint in its own test file was hidden by the MPE stub warnings, and its report wrongly blamed all of them on the stubs. Claude fixed the lint; merged. | Workers writing their own tests worked well when thinking was on. |
 | 15:06:57 | **T6 retry (mini, thinking off, pseudo-code): 5/6 synth tests about 2.5 min in.** Attempt 1: 27 min, didn't compile. | Pseudo-code specs make the mini capable of a task it otherwise failed. |
 | 15:07:41 | T10 (chord recognition, chiz, thinking off) wrote `recognize.rs` ~1.5 min after dispatch; working through compile errors in its own tests. | — |
+| 15:10:41 | T10 (thinking off) compiles: 10/19 of its own tests. Over the next 4 min it **rewrote its test file twice and dropped to 4/19 before climbing back to 14/21**. | Thrashing on self-written tests. |
+| 15:14 | Claude probes T10: `best_chord` is **correct**. Its **tests are wrong**: "G B D F" written as MIDI 55, 59, 62, **66** (66 is F#), so it was "fixing" correct code to match wrong tests. T10's session then ended when it tried to write `/tmp/dbg.rs` and run `rustc` outside its worktree (opencode refused headlessly). | Thinking-off + worker-written tests = wrong tests. Sandboxing held. |
+| 15:14 | T6 stuck at 5/6 (Organ "out of tune": period 105 vs 109). Claude finds **its own test is wrong**: "first lag within 3% of best" catches a near-sine's broad peak early (cos(2π·4/109) = 0.9735). Fixed to require a local maximum; T6's code then passes unchanged. | Third Claude test bug of the day (after the glide clippy lint and the keymap split gap). |
+| 15:16 | T10 retry on chiz, **thinking on**, with notes: code is right, recheck every MIDI number against a table, stay in the worktree. | — |
+| 15:17:01 | **T6 retry done (mini, thinking off, pseudo-code): 6/6, clippy clean, allocation-free render.** 12.6 min vs attempt 1's 27 min and no compile. **Its report credits the Organ fix to `rem_euclid` vs `fract`**, which it admits are identical for positive values; the real fix was Claude's test change. Merged. | Pseudo-code made an impossible task routine for the mini. Confabulated causal explanations are a reporting risk. |
+| 15:17 | **Whole workspace: 87 passed, 0 failed**, including Claude's engine tests (audio, MPE bend-then-restrike, plain MIDI on loop boundaries) on the workers' glide/synth/MPE. **First full headless screenshot of the app** (demo: Dm9 → G13 → Cmaj9 → A7♭9). T11a dispatched to the mini (thinking on). | End-to-end milestone. |
 
 ## Token ledger: delegating vs doing it myself
 
