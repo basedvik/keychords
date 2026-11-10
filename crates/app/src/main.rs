@@ -1,4 +1,6 @@
-//! keychords standalone app (Rune UI). Shell only for now: proves the toolchain and window.
+//! keychords standalone app (Rune UI).
+
+mod engine;
 
 use rune::tok::{self, type_};
 use rune::{col, text, AppSpec, Cx, El};

@@ -10,3 +10,13 @@ path = "src/main.rs"
 
 [dependencies]
 rune = { git = "https://github.com/anomalyco/rune", rev = "2a44156b21d63b0342a366b26d9222a6edd4622c" }
+chords = { workspace = true }
+keymap = { workspace = true }
+voicing = { workspace = true }
+glide = { workspace = true }
+synth = { workspace = true }
+sequencer = { workspace = true }
+midi = { workspace = true }
+cpal = "0.18"
+midir = "0.11"
+rtrb = "0.4"
