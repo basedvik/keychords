@@ -7,7 +7,8 @@ Wire T11a's functions into the Rune UI in `crates/app/src/main.rs`. Rune is a pr
 2. Exports write to `~/Music/keychords/` (create it), named `keychords-YYYYMMDD-HHMMSS.mid` / `.wav` (use `std::time::SystemTime`; no new dependencies, so format the timestamp yourself from the Unix time). Set `s.status` to "Saved <path>" or the error.
 3. Import MIDI imports the newest `.mid` in `~/Music/keychords/import/` (create the folder if missing; status says so if it's empty).
 4. Dropping a `.mid` file anywhere on the window imports it (see the drop-files example).
-5. Keep `cargo run -p app -- --snap logs/ui.png --scene demo` working; the new buttons must appear in it.
+5. Polish: `lines_panel` is a fixed 600 px wide and leaves dead space to its right. Make it fill the rest of its row (the chord panel keeps its 300 px). Rune elements can report their laid-out size (grep `on_layout` in `.research/rune/crates/rune/src`); store the width in `State` and draw the bars from it, falling back to 600 before the first layout.
+6. Keep `cargo run -p app -- --snap logs/ui.png --scene demo` working; the new buttons must appear in it.
 
 ## Files you may edit
 - crates/app/src/main.rs
