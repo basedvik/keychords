@@ -122,3 +122,12 @@ fn split_decoder_custom_split() {
     assert_eq!(d.note_on(57), None);
     assert_eq!(d.note_on(60 + 23), Some(Chord::new(9, Maj7s11)));
 }
+
+#[test]
+fn split_decoder_root_is_absolute_pitch_class() {
+    // Split on F3 (53), not a C: F2 below it is still an F root.
+    let mut d = SplitDecoder::new(53);
+    assert_eq!(d.note_on(41), None);
+    assert_eq!(d.note_on(53 + 5), Some(Chord::new(5, Min7)));
+    assert!(d.note_off(41));
+}

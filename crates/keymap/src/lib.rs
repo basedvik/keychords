@@ -51,7 +51,15 @@ pub enum Letter {
 impl Letter {
     /// C=0 D=2 E=4 F=5 G=7 A=9 B=11.
     pub fn pitch_class(self) -> PitchClass {
-        todo!()
+        match self {
+            Letter::C => 0,
+            Letter::D => 2,
+            Letter::E => 4,
+            Letter::F => 5,
+            Letter::G => 7,
+            Letter::A => 9,
+            Letter::B => 11,
+        }
     }
 }
 
@@ -103,7 +111,77 @@ impl KeyMap {
     }
 
     pub fn resolve(&self, input: KeyInput) -> Option<KeyAction> {
-        todo!()
+        // Dead key: the position itself resolves to nothing.
+        if self.dead.contains(&input.phys) {
+            return None;
+        }
+        // Dead key's action moves to Backslash.
+        if input.phys == Phys::Backslash {
+            if let Some(&dp) = self.dead.iter().find(|p| Self::pos_action(**p).is_some()) {
+                return Self::pos_action(dp);
+            }
+            return None;
+        }
+        // Letters resolve by character (case-insensitive), ignoring phys.
+        if let Some(c) = input.character {
+            if c.is_ascii_alphabetic() {
+                let ch = c.to_ascii_lowercase();
+                return match ch {
+                    'a' => Some(KeyAction::Root { letter: Letter::A, sharp: input.shift }),
+                    'b' => Some(KeyAction::Root { letter: Letter::B, sharp: input.shift }),
+                    'c' => Some(KeyAction::Root { letter: Letter::C, sharp: input.shift }),
+                    'd' => Some(KeyAction::Root { letter: Letter::D, sharp: input.shift }),
+                    'e' => Some(KeyAction::Root { letter: Letter::E, sharp: input.shift }),
+                    'f' => Some(KeyAction::Root { letter: Letter::F, sharp: input.shift }),
+                    'g' => Some(KeyAction::Root { letter: Letter::G, sharp: input.shift }),
+                    'q' => Some(KeyAction::OctaveDown),
+                    'w' => Some(KeyAction::OctaveUp),
+                    's' => Some(KeyAction::Stop),
+                    'z' => Some(KeyAction::Flat),
+                    'x' => Some(KeyAction::Sharp),
+                    'y' => Some(KeyAction::Quality(Quality::ALL[22])),
+                    'u' => Some(KeyAction::Quality(Quality::ALL[4])),
+                    'i' => Some(KeyAction::Quality(Quality::ALL[5])),
+                    'o' => Some(KeyAction::Quality(Quality::ALL[6])),
+                    'p' => Some(KeyAction::Quality(Quality::ALL[7])),
+                    'h' => Some(KeyAction::Quality(Quality::ALL[21])),
+                    'j' => Some(KeyAction::Quality(Quality::ALL[8])),
+                    'k' => Some(KeyAction::Quality(Quality::ALL[9])),
+                    'l' => Some(KeyAction::Quality(Quality::ALL[10])),
+                    'n' => Some(KeyAction::Quality(Quality::ALL[23])),
+                    'm' => Some(KeyAction::Quality(Quality::ALL[12])),
+                    _ => None,
+                };
+            }
+        }
+        // Resolve by physical position.
+        Self::pos_action(input.phys)
+    }
+
+    fn pos_action(phys: Phys) -> Option<KeyAction> {
+        match phys {
+            Phys::Digit1 => Some(KeyAction::Sound(0)),
+            Phys::Digit2 => Some(KeyAction::Sound(1)),
+            Phys::Digit3 => Some(KeyAction::Sound(2)),
+            Phys::Digit4 => Some(KeyAction::Sound(3)),
+            Phys::Digit5 => Some(KeyAction::Sound(4)),
+            Phys::Digit6 => Some(KeyAction::Sound(5)),
+            Phys::Digit7 => Some(KeyAction::Quality(Quality::ALL[0])),
+            Phys::Digit8 => Some(KeyAction::Quality(Quality::ALL[1])),
+            Phys::Digit9 => Some(KeyAction::Quality(Quality::ALL[2])),
+            Phys::Digit0 => Some(KeyAction::Quality(Quality::ALL[3])),
+            Phys::Minus => Some(KeyAction::Quality(Quality::ALL[16])),
+            Phys::Equal => Some(KeyAction::Quality(Quality::ALL[17])),
+            Phys::BracketLeft => Some(KeyAction::Quality(Quality::ALL[18])),
+            Phys::BracketRight => Some(KeyAction::Quality(Quality::ALL[19])),
+            Phys::Semicolon => Some(KeyAction::Quality(Quality::ALL[11])),
+            Phys::Quote => Some(KeyAction::Quality(Quality::ALL[20])),
+            Phys::Comma => Some(KeyAction::Quality(Quality::ALL[13])),
+            Phys::Period => Some(KeyAction::Quality(Quality::ALL[14])),
+            Phys::Slash => Some(KeyAction::Quality(Quality::ALL[15])),
+            Phys::Space => Some(KeyAction::Transport),
+            Phys::Backquote | Phys::Backslash | Phys::Letter | Phys::Other => None,
+        }
     }
 }
 
@@ -124,11 +202,35 @@ impl SplitDecoder {
     }
 
     pub fn note_on(&mut self, note: u8) -> Option<Chord> {
-        todo!()
+        if note < self.split {
+            let pc = note % 12;
+            self.root = Some(pc);
+        } else if note < self.split + 24 {
+            self.quality = Some(note - self.split);
+        } else {
+            // split+24 and above ignored.
+        }
+        match (self.root, self.quality) {
+            (Some(r), Some(qi)) => Quality::ALL.get(qi as usize).map(|q| Chord::new(r, *q)),
+            _ => None,
+        }
     }
 
     /// Returns true when this releases a held half of the current chord.
     pub fn note_off(&mut self, note: u8) -> bool {
-        todo!()
+        if note < self.split {
+            let pc = note % 12;
+            if self.root == Some(pc) {
+                self.root = None;
+                return true;
+            }
+        } else if note < self.split + 24 {
+            let idx = note - self.split;
+            if Some(idx) == self.quality {
+                self.quality = None;
+                return true;
+            }
+        }
+        false
     }
 }
