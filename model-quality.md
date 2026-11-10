@@ -33,7 +33,7 @@ Each task is scored 1–5 on:
 | T5b MPE | mini (thinking on) | byte-level | **merged** | 4.4 min | 0 | 5 | 5 | 3 | 5 | 5 |
 | T9 MIDI export (+ own tests) | chiz (thinking **on**) | spec-heavy, writes tests | **merged**; 15 good tests, 6 ambiguities resolved | 25.6 min | 0 | 5 | 5 | 4 | 4 | 2 |
 | T6 synth | mini | open-ended DSP | **merged** via pseudo-code retry (thinking off); report misattributed a fix | 27 (#1) + 12.6 min | 1 | 5 | 5 | 4 | 3 | 3 |
-| T10 chord recognition (+ own tests) | chiz | exact formula, writes tests | #1 (thinking off): correct code, **wrong tests** (bad MIDI numbers); #2 (thinking on) running | 8 min (#1) | 1 | | | | | |
+| T10 chord recognition (+ own tests) | chiz | exact formula, writes tests | **merged**: #1 (thinking off) correct code but wrong tests; #2 (thinking on) fixed all 7 tests with derivations | 8 + 16 min | 1 | 5 | 5 | 4 | 4 | 2 |
 | T4 glide | chiz (thinking **off**) | stateful scheduling | **merged** after 1 review-note retry + review fix | 3.5 + 2.2 min | 1 | 4 | 4 | 4 | 5 | 4 |
 | T8 sequencer | mini | mechanical + edge cases | **merged** | 6.2 min | 0 | 5 | 5 | 4 | 5 | 5 |
 | T3 voicing | chiz | algorithmic | **merged** (attempt 2); differential-tested vs reference | 10 + 13 min | 1 | 5 | 5 | 4 | 5 | 1 |
@@ -156,6 +156,9 @@ All times are local (Nov 10, 2026), taken from logs, git and opencode's session 
 | 15:16 | T10 retry on chiz, **thinking on**, with notes: code is right, recheck every MIDI number against a table, stay in the worktree. | — |
 | 15:17:01 | **T6 retry done (mini, thinking off, pseudo-code): 6/6, clippy clean, allocation-free render.** 12.6 min vs attempt 1's 27 min and no compile. **Its report credits the Organ fix to `rem_euclid` vs `fract`**, which it admits are identical for positive values; the real fix was Claude's test change. Merged. | Pseudo-code made an impossible task routine for the mini. Confabulated causal explanations are a reporting risk. |
 | 15:17 | **Whole workspace: 87 passed, 0 failed**, including Claude's engine tests (audio, MPE bend-then-restrike, plain MIDI on loop boundaries) on the workers' glide/synth/MPE. **First full headless screenshot of the app** (demo: Dm9 → G13 → Cmaj9 → A7♭9). T11a dispatched to the mini (thinking on). | End-to-end milestone. |
+| 15:16–15:30 | T10 retry (chiz, thinking on): one reasoning pass of ~42k tokens (~13 min), hand-checking every MIDI number and expected score. | — |
+| 15:30:59 | **T10: 21/21**, about 1 min after leaving reasoning. Report: **all 7 failures were wrong tests**, each corrected with explicit score derivations (Claude spot-checked G7: dom7 4.25 > maj 2.75 > maj7 2.65), one test *strengthened*; code changes were only 2 clippy fixes. Merged (trivial `lib.rs` conflict with T9). **Workspace: 108 passed, 0 failed.** | Thinking on fixed what thinking off broke: careful, honest, well-reasoned test authoring. |
+| 15:32 | T12 (17 more sounds) dispatched to chiz, thinking on. Claude fixed a clippy error in its own `audio.rs` in both `main` and T11a's worktree, so T11a's `clippy -p app` gate can pass. **Workspace clippy-clean.** | Fix shared-crate lints before a worker's gate hits them. |
 
 ## Token ledger: delegating vs doing it myself
 
