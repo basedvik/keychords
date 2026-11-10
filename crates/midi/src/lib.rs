@@ -2,3 +2,4 @@
 
 pub mod smf;
 pub mod mpe;
+pub mod recognize;
