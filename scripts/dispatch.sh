@@ -22,7 +22,12 @@ if [ -n "$key" ]; then
 fi
 spec=$(ls "$root"/tasks/"$id"-*.md | head -1)
 wt="$root/../kc-wt/$id"
-[ -d "$wt" ] || git -C "$root" worktree add -q -b "task/$id" "$wt" main
+if [ -d "$wt" ]; then
+  # A reused worktree must pick up everything merged since it was made (config, deps).
+  [ -z "$(git -C "$wt" status --porcelain)" ] && git -C "$wt" merge -q --no-edit main
+else
+  git -C "$root" worktree add -q -b "task/$id" "$wt" main
+fi
 mkdir -p "$root/logs"
 log="$root/logs/$id.log"
 echo "[$(date +%T)] $id → $machine ($model) in $wt" | tee "$log"
