@@ -29,7 +29,9 @@ Each task is scored 1–5 on:
 |---|---|---|---|---|---|---|---|---|---|---|
 | T1 chords | mini | mechanical | **merged** | 8.4 min | 0 | 4 | 5 | 3 | 5 | 3 |
 | T2 keymap | mini | mechanical, some logic | **merged** (review fixed a latent bug) | 11.2 min | 0 | 3 | 4 | 3 | 5 | 3 |
-| T5a SMF | mini | byte-level, spec-heavy | attempt 1 failed (no output, stale worktree → 8k cap); re-queued | 5.3 min (#1) | 1 | | | | | |
+| T5a SMF | mini → chiz (thinking off) | byte-level, spec-heavy | mini #1 failed (stale worktree, 8k cap); chiz running | 5.3 min (#1) | 2 | | | | | |
+| T4 glide | chiz (thinking **off**) | stateful scheduling | **merged** after 1 review-note retry + review fix | 3.5 + 2.2 min | 1 | 4 | 4 | 4 | 5 | 4 |
+| T8 sequencer | mini | mechanical + edge cases | **merged** | 6.2 min | 0 | 5 | 5 | 4 | 5 | 5 |
 | T3 voicing | chiz | algorithmic | **merged** (attempt 2); differential-tested vs reference | 10 + 13 min | 1 | 5 | 5 | 4 | 5 | 1 |
 
 ## Per-task notes
@@ -123,6 +125,17 @@ All times are local (Nov 10, 2026), taken from logs, git and opencode's session 
 | 14:26:19 | **T5a fails with no output:** `finish: length` at 8,192. Root cause: stale worktree from the killed 14:01 run, so no project `opencode.json`. | Same stale-worktree problem as T2. `dispatch.sh` now syncs reused worktrees. |
 | 14:27 | Mini queue continues (T8 → T6 → T5b, then the T5a retry). | — |
 | 14:28 | **Experiment:** confirmed chiz's llama.cpp ignores the model name and honours `chat_template_kwargs.enable_thinking=false` (2-token reply, 0 reasoning). Added a `qwen3.8-27b-nothink` variant; **T4 glide dispatched to chiz with thinking off.** | Tests recommendation #4 directly: does a no-thinking dense 27B translate a precise spec faster without losing correctness? |
+| 14:29:03 | **T4 (chiz, thinking off) wrote the whole glide module ~1 min after dispatch** (vs 21 min for T3 with thinking on). | — |
+| 14:29:42 | T4 compiles: 6/11. Then **oscillates at 7/11 for ~1.5 min**: each edit fixed one edge case and broke another. | Without thinking it iterates against test output instead of reasoning about the spec. |
+| 14:31 | Claude reads T4's code: four concrete misreadings (first chord given a slide; "previous" pitches read after being overwritten; inverted surplus-voice check; inactivity never cleared). **Retry with those four notes, same worktree.** | One round of specific notes instead of waiting. |
+| 14:32:12 | **T8 sequencer (mini): 9/9**, about 40 s after its first edit. Merged after review (clean; minor O(n) walk in `boundaries`). | — |
+| 14:32:57 | Claude's controller tests (keys → chords → voicings → loop scheduling) pass against the workers' merged crates. | First proof the pieces integrate. |
+| 14:33:43 | **T4 retry: 11/11** about 2 min after the notes. Its last clippy error was in **Claude's test file** (`map_or(false, …)`); it rightly didn't edit it and reported clippy on `--lib` instead. Claude fixed the test lint. | Test files must pass clippy too; a worker can't fix them. |
+| 14:34 | **Second review catch:** `lands_at` returned the first chord's onset whenever glide = 0, so MPE output would never re-strike. Test added (fails), one-line fix, merged. | Edge cases still slip past thinking-off. |
+| 14:34 | **You:** make the local machines do as much as possible; Claude only checks and reports. | Workers now write their own tests; Claude writes short specs and reviews. |
+| 14:35 | T5a moved from the mini queue to chiz (thinking off); the mini's pending retry cancelled. Specs written for T9 (MIDI export), T10 (chord recognition) and T12 (17 more sounds), all with worker-written tests. | — |
+| 14:36:40 | T5a (chiz) wrote `smf.rs`; it can't go green because **Claude's verify command also ran the MPE stub tests**, which were added after the spec was written. Spec fixed; T5a restarted in its worktree. | Spec drift: a verify command must only cover the task's own tests. |
+| 14:37 | **Collateral damage:** `pkill -f "T5a: midi::smf"` also matched the mini's queue script (that text was in its command line) and killed it. T6's opencode process survived; T5b's automatic start was lost and is now re-queued, waiting on **T6's PID**. | Kill and wait by PID, never by pattern. |
 
 ## Token ledger: delegating vs doing it myself
 
