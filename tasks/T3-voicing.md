@@ -11,6 +11,13 @@ Notes:
 - `voice_cycle`: exact optimisation. For each candidate of the first chord, run a Viterbi/DP over the remaining chords and add the wrap-around cost back to that first candidate; keep the best total. Loops can be up to 64 chords; this is fast enough.
 - Do not call `chords` methods whose bodies are `todo!()` (another worker is implementing that crate). Use `Chord`'s public fields and `upper_template`.
 
+## How to work
+Work incrementally and keep each reply short. Do **not** plan the whole crate in one go: a previous attempt spent its entire reply budget reasoning and wrote nothing.
+1. Implement `bass_note`, `motion` and `candidates`; run the verify command.
+2. Implement `VoiceLeader::next`; run it again.
+3. Implement `voice_cycle`; run it again, then fix clippy.
+Write code early; let the compiler and the tests tell you what is wrong.
+
 ## Files you may edit
 - crates/voicing/src/lib.rs
 

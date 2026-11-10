@@ -28,5 +28,9 @@ log="$root/logs/$id.log"
 echo "[$(date +%T)] $id → $machine ($model) in $wt" | tee "$log"
 cd "$wt"
 start=$(date +%s)
-timeout "${TASK_TIMEOUT:-1800}" opencode run -m "$model" "$(cat "$spec")" >>"$log" 2>&1 || echo "[exit $?]" >>"$log"
+OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX=100000 timeout "${TASK_TIMEOUT:-1800}" opencode run -m "$model" "$(cat "$spec")" >>"$log" 2>&1 || echo "[exit $?]" >>"$log"
 echo "[$(date +%T)] $id finished in $(( $(date +%s) - start ))s" | tee -a "$log"
+# A run that ends with nothing changed usually means a reply was cut off mid-reasoning.
+if [ -z "$(git status --porcelain)" ] && [ "$(git rev-list --count main..HEAD)" = 0 ]; then
+  echo "[$(date +%T)] $id [NO CHANGES]" | tee -a "$log"
+fi

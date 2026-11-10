@@ -27,14 +27,23 @@ Each task is scored 1–5 on:
 
 | Task | Machine | Difficulty | Result | Time | Retries | Correct | Spec | Rust | Discipline | Efficiency |
 |---|---|---|---|---|---|---|---|---|---|---|
-| T1 chords | mini | mechanical | pending | | | | | | | |
+| T1 chords | mini | mechanical | **merged** | 8.4 min | 0 | 4 | 5 | 3 | 5 | 3 |
 | T2 keymap | mini | mechanical, some logic | pending | | | | | | | |
 | T5a SMF | mini | byte-level, spec-heavy | pending | | | | | | | |
 | T3 voicing | chiz | algorithmic | pending | | | | | | | |
 
 ## Per-task notes
 
-_Filled in as each task is gated._
+### T1 chords: Mac mini, merged
+
+- **Outcome:** 4/4 tests and clippy clean on its own; one file touched; no test edits. Final report was accurate and concise.
+- **Timeline:** dispatched 14:01:28, finished 14:09:51 (503 s). About 5 min of that was reading and reasoning while it shared the server with two other workers (see the serving note below). Once alone, it went from first edit to green in about 2 min.
+- **Unicode corruption (notable).** Its first attempt wrote `♭` as `₵` and `♯` as `♫` (`"A7₵9"`, `"C♫"`), even though it was copying from a test file that showed the right characters. It recovered by itself, switching to `\u{266D}`/`\u{266F}` escapes after the first failing run. This looks like a tokenizer or Q4 quantization weakness on uncommon symbols. **Implication:** give this model `\u{…}` escapes in specs for any non-ASCII output.
+- **Versus the reference:**
+  - `index` and `from_index` are two hand-written 24-arm `match` tables. I'd have written `self as usize` and `Self::ALL.get(i).copied()`: one line each, and they can't drift out of sync with `ALL`. Correct, but more code to maintain.
+  - `root_name(pc)` indexes `[pc as usize]` without `% 12`, so it panics on `pc ≥ 12` even though it's public. `Chord::new` wraps the root but `root_name` doesn't. It's an edge case the tests didn't cover, and the reference guards it.
+  - `pitch_classes` and `name` are the same as what I'd write.
+- **Serving note:** the first ~6 min ran with 3 workers sharing the mini's 4 slots, at about 7.7 tok/s per stream (31 tok/s total). Alone on one slot it measured **39.5 tok/s**. The mini now runs one task at a time.
 
 ## Summary
 
