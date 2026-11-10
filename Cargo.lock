@@ -7,6 +7,10 @@ name = "chords"
 version = "0.1.0"
 
 [[package]]
+name = "glide"
+version = "0.1.0"
+
+[[package]]
 name = "keymap"
 version = "0.1.0"
 dependencies = [
@@ -15,6 +19,17 @@ dependencies = [
 
 [[package]]
 name = "midi"
+version = "0.1.0"
+
+[[package]]
+name = "sequencer"
+version = "0.1.0"
+dependencies = [
+ "chords",
+]
+
+[[package]]
+name = "synth"
 version = "0.1.0"
 
 [[package]]

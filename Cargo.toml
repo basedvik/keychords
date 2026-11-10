@@ -12,3 +12,6 @@ chords = { path = "crates/chords" }
 keymap = { path = "crates/keymap" }
 voicing = { path = "crates/voicing" }
 midi = { path = "crates/midi" }
+glide = { path = "crates/glide" }
+synth = { path = "crates/synth" }
+sequencer = { path = "crates/sequencer" }
