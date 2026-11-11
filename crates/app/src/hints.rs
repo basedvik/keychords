@@ -42,14 +42,25 @@ pub fn suggest(current: &(Chord, Voicing), octave: i8, smooth: bool, n: usize) -
             let v = vl.next(chord);
             let m = motion(&cur_voicing.upper, &v.upper);
             let lush = if q.intervals().len() >= 4 { 2 } else { 0 };
-            let score = m as i32 - lush;
+            let same_quality = if q == cur_chord.quality { 4 } else { 0 };
+            let same_root = if root == cur_root { 3 } else { 0 };
             let d = (crate::theme::fifths_index(root) + 12 - crate::theme::fifths_index(cur_root)) % 12;
-            let fifths_dist = d.min(12 - d);
-            out.push((score, fifths_dist, q.index(), Suggestion { chord, motion: m }));
+            let fifths_dist: i32 = d.min(12 - d) as i32;
+            let score = m as i32 - lush + same_quality + same_root + (fifths_dist - 1).abs();
+            out.push((score, d.min(12 - d), q.index(), Suggestion { chord, motion: m }));
         }
     }
     out.sort_by_key(|a| (a.0, a.1, a.2));
-    out.into_iter().take(n).map(|(_, _, _, s)| s).collect()
+    let mut seen = std::collections::HashSet::new();
+    let deduped: Vec<_> = out.into_iter().filter_map(|(s, fd, _, sugg)| {
+        let root = sugg.chord.root;
+        if seen.insert(root) {
+            Some((s, fd, sugg))
+        } else {
+            None
+        }
+    }).collect();
+    deduped.into_iter().take(n).map(|(_, _, s)| s).collect()
 }
 
 #[cfg(test)]
