@@ -20,6 +20,28 @@ use rune::{canvas, col, el, row, text, AppSpec, Color, Cx, El, Key, KeyEvent, Li
 use controller::{Controller, Mode};
 use engine::{Command, MidiMode};
 
+/// A keyboard position: letters by character, everything else by physical key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum CapId {
+    Letter(char),
+    Phys(Phys),
+}
+
+impl CapId {
+    fn of(input: &KeyInput) -> Option<Self> {
+        match input.character {
+            Some(c) if c.is_ascii_alphabetic() => Some(Self::Letter(c.to_ascii_lowercase())),
+            Some(_) => None,
+            None => Some(Self::Phys(input.phys)),
+        }
+    }
+
+    /// The cap the hint points at: the letter D, or the comma.
+    fn start_hint(d: bool) -> Self {
+        if d { Self::Letter('d') } else { Self::Phys(Phys::Comma) }
+    }
+}
+
 struct State {
     ctl: Controller,
     audio: Option<audio::Audio>,
@@ -30,6 +52,10 @@ struct State {
     reverb: f32,
     /// Output level for the meter, 0..=1, with a falling decay.
     meter: f32,
+    /// Keys currently held, for the sunk-cap look.
+    held: Vec<CapId>,
+    /// Wall seconds from `poll`, for the start-hint pulse.
+    clock: f64,
 }
 
 impl State {
@@ -58,6 +84,8 @@ impl State {
             volume_db: 0.0,
             reverb: 0.3,
             meter: 0.0,
+            held: Vec::new(),
+            clock: 0.0,
         };
         let glide = s.ctl.glide();
         s.send(vec![glide]);
@@ -147,14 +175,30 @@ fn on_key(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
                 return false;
             }
             s.press(input);
+            if let Some(id) = CapId::of(&input) {
+                if !s.held.contains(&id) {
+                    s.held.push(id);
+                }
+            }
         }
         _ => return false,
     }
     true
 }
 
-fn poll(s: &mut State, _: f64, _: &mut Tx) -> bool {
+fn on_key_up(s: &mut State, e: &KeyEvent, _: &mut Tx) -> bool {
+    if let Key::Text(t) = &e.key {
+        let input = KeyInput { character: t.chars().next(), phys: Phys::Other, shift: e.mods.shift };
+        if let Some(id) = CapId::of(&input) {
+            s.held.retain(|h| *h != id);
+        }
+    }
+    false
+}
+
+fn poll(s: &mut State, secs: f64, _: &mut Tx) -> bool {
     let now = s.now();
+    s.clock = secs;
     let cmds = s.ctl.poll(now);
     s.send(cmds);
     if let Some(a) = &s.audio {
@@ -374,43 +418,128 @@ const ROWS: [&[(&str, Phys, Option<char>)]; 4] = [
       ("M", Phys::Letter, Some('m')), (",", Phys::Comma, None), (".", Phys::Period, None), ("/", Phys::Slash, None)],
 ];
 
+/// The tactile cap: a `theme::CAP` face with a `theme::CAP_EDGE` bottom edge (a slightly
+/// taller rounded element offset down behind the face), which sinks when held.
+fn cap(face: Color, edge: Color, held: bool, input: KeyInput, children: El) -> El {
+    let sink = held as u8 as f32 * 2.0;
+    let edge_h = if held { 1.0 } else { 3.0 };
+    let r = 10.0;
+    el().size(68.0, 58.0 + edge_h).radius(r).fill(edge)
+        .child(el().size(68.0, 58.0).radius(r).fill(face).mt(sink).center().child(children))
+        .on_press(move |s: &mut State| s.press(input))
+}
+
 fn keymap_panel(s: &State) -> El {
     let t = tok::theme(true);
-    let current = s.ctl.current().map(|(ch, _)| *ch);
+    let cur = s.ctl.current();
+    let cur_root = s.ctl.root;
+    let cur_quality = s.ctl.quality;
+    let has_chord = !s.ctl.history.is_empty();
+    // "Try next": the caps of up to three smooth next chords get a soft halo.
+    let sugg = cur
+        .map(|(ch, v)| hints::suggest(&(*ch, v.clone()), s.ctl.leader.octave, s.ctl.leader.smooth, 3))
+        .unwrap_or_default();
+    let hint_pulse: f32 = if has_chord {
+        1.0
+    } else {
+        0.5 + 0.25 * (1.0 + ((s.clock / 1.4).fract() * std::f64::consts::PI * 2.0).cos() as f32)
+    };
+
     let mut rows = col().gap(6.0);
     for (r, keys) in ROWS.iter().enumerate() {
         let mut line = row().gap(6.0).ml(r as f32 * 22.0);
-        for &(cap, phys, ch) in keys.iter() {
+        for &(cap_label, phys, ch) in keys.iter() {
             let input = KeyInput { character: ch, phys, shift: false };
             let action = s.ctl.keymap.resolve(input);
-            let (label, accent) = match action {
-                Some(KeyAction::Root { letter, .. }) => {
-                    let on = s.ctl.root == Some(letter.pitch_class());
-                    (String::new(), on.then(|| c(ROOT_COLOR)))
+            let id = CapId::of(&input);
+            let held = id.is_some_and(|i| s.held.contains(&i));
+
+            // Legend and face colour for this cap.
+            let (label, face, legend, font, bold) = match action {
+                Some(KeyAction::Root { letter, sharp }) => {
+                    let pc = (letter.pitch_class() as i8 + sharp as i8).rem_euclid(12) as u8;
+                    let col = theme::root_color(pc);
+                    (String::new(), c(theme::CAP), col, TextStyle::new(20.0, 700.0), true)
                 }
                 Some(KeyAction::Quality(q)) => {
-                    let on = current.is_some_and(|ch| ch.quality == q) || s.ctl.quality == Some(q);
-                    (q.key_label().to_string(), on.then(|| c(CHORD_COLOR)))
+                    let tint = theme::family_tint(theme::family(q));
+                    (q.key_label().to_string(), tint, c(theme::INK), type_::LABEL, false)
                 }
                 Some(KeyAction::Sound(i)) => {
                     let p = synth::Patch::ALL[i as usize];
-                    (p.label().to_string(), (s.ctl.patch == p).then(|| tok::accent(2, true)))
+                    (p.label().to_string(), c(theme::CAP), c(theme::INK_SOFT), type_::LABEL, false)
                 }
-                Some(KeyAction::OctaveDown) => ("octave −".into(), None),
-                Some(KeyAction::OctaveUp) => ("octave +".into(), None),
-                Some(KeyAction::Stop) => ("stop".into(), None),
-                Some(KeyAction::Flat) => ("flat ♭".into(), None),
-                Some(KeyAction::Sharp) => ("sharp ♯".into(), None),
-                Some(KeyAction::Transport) | None => (String::new(), None),
+                Some(KeyAction::OctaveDown) => ("octave −".into(), c(theme::CAP), c(theme::INK_SOFT), type_::LABEL, false),
+                Some(KeyAction::OctaveUp) => ("octave +".into(), c(theme::CAP), c(theme::INK_SOFT), type_::LABEL, false),
+                Some(KeyAction::Stop) => ("stop".into(), c(theme::CAP), c(theme::INK_SOFT), type_::LABEL, false),
+                Some(KeyAction::Flat) => ("flat ♭".into(), c(theme::CAP), c(theme::INK_SOFT), type_::LABEL, false),
+                Some(KeyAction::Sharp) => ("sharp ♯".into(), c(theme::CAP), c(theme::INK_SOFT), type_::LABEL, false),
+                Some(KeyAction::Transport) | None => (String::new(), c(theme::CAP), c(theme::INK_SOFT), type_::LABEL, false),
             };
-            let is_root = matches!(action, Some(KeyAction::Root { .. }));
-            let mut key = col().size(64.0, 50.0).padding(6.0).radius(6.0).gap(2.0)
-                .fill(t.card).border(1.0, accent.unwrap_or(if is_root { c("#5A4A20") } else { t.card_border }))
-                .on_press(move |s: &mut State| s.press(input))
-                .child(text(cap).font(if is_root { TextStyle::new(17.0, 700.0) } else { type_::LABEL })
-                    .color(if is_root { c(ROOT_COLOR) } else { t.text_secondary }));
+
+            // Unused caps (backquote, R, T, V) dim to 40%.
+            let unused = action.is_none()
+                || matches!(ch, Some('r') | Some('t') | Some('v'));
+            let face = if unused { c_alpha(face, 0.4) } else { face };
+
+            // Border: current root (its root colour), current quality (ink), suggestion halo.
+            let mut border: Option<(f32, Color)> = None;
+            match action {
+                Some(KeyAction::Root { letter, sharp }) => {
+                    let pc = (letter.pitch_class() as i8 + sharp as i8).rem_euclid(12) as u8;
+                    if cur_root == Some(pc) {
+                        border = Some((2.0, theme::root_color(pc)));
+                    }
+                }
+                Some(KeyAction::Quality(q)) if cur_quality == Some(q) => {
+                    border = Some((2.0, c(theme::INK)));
+                }
+                _ => {}
+            }
+            if border.is_none() {
+                if let Some(sug) = sugg.iter().find(|sg| match action {
+                    Some(KeyAction::Root { letter, sharp }) => {
+                        (letter.pitch_class() as i8 + sharp as i8).rem_euclid(12) as u8 == sg.chord.root
+                    }
+                    Some(KeyAction::Quality(q)) => sg.chord.quality == q,
+                    _ => false,
+                }) {
+                    border = Some((4.0, c_alpha(theme::root_color(sug.chord.root), 0.45)));
+                }
+            }
+            if border.is_none() {
+                border = Some((1.0, t.card_border));
+            }
+
+            // Sunk cap: a 25% wash of the root colour over the cap face.
+            let face = if held && bold {
+                if let Some(KeyAction::Root { letter, sharp }) = action {
+                    let pc = (letter.pitch_class() as i8 + sharp as i8).rem_euclid(12) as u8;
+                    c(theme::CAP).mix(theme::root_color(pc), 0.25)
+                } else {
+                    face
+                }
+            } else {
+                face
+            };
+
+            let mut content = el().size(68.0, 58.0).center();
             if !label.is_empty() {
-                key = key.child(text(label).font(type_::LABEL).color(accent.unwrap_or(t.text)));
+                let lc = if unused { c_alpha(legend, 0.4) } else { legend };
+                content = content.child(text(label).font(font).color(lc));
+            }
+            if bold {
+                let lc = if unused { c_alpha(legend, 0.4) } else { legend };
+                content = content.child(text(cap_label.to_string()).font(font).color(lc));
+            }
+
+            let (bw, bc) = border.unwrap();
+            let mut key = cap(face, c(theme::CAP_EDGE), held, input, content);
+            key = key.border(bw, bc);
+            if !has_chord
+                && (id == Some(CapId::start_hint(true)) || id == Some(CapId::start_hint(false)))
+            {
+                key = key.opacity(hint_pulse);
             }
             line = line.child(key);
         }
@@ -418,6 +547,8 @@ fn keymap_panel(s: &State) -> El {
     }
     rows
 }
+
+
 
 fn controls(s: &State) -> El {
     let t = tok::theme(true);
@@ -470,7 +601,12 @@ fn view(s: &State, _: &mut Cx<State>) -> El {
     if s.ctl.mode == Mode::Loop {
         body = body.child(loop_strip(s));
     }
-    body.child(keymap_panel(s)).child(controls(s))
+    if s.ctl.history.is_empty() {
+        body = body.child(text("Press D, then , to play your first chord")
+            .font(type_::BODY).color(t.text_secondary));
+    }
+    body = body.child(keymap_panel(s)).child(controls(s));
+    body.focusable(true).autofocus().on_key_up(on_key_up)
 }
 
 fn demo(s: &mut State) {
