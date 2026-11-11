@@ -40,6 +40,8 @@ pub struct Controller {
     accidental: i8,
     /// "A letter replays the last chord type."
     pub replay_quality: bool,
+    /// "Ring until the next chord": off means a chord stops when its keys are released.
+    pub ring: bool,
     pub patch: Patch,
     pub glide_ms: f32,
     pub strum_ms: f32,
@@ -69,6 +71,7 @@ impl Controller {
             quality: None,
             accidental: 0,
             replay_quality: false,
+            ring: true,
             patch: Patch::GlidePad,
             glide_ms: 220.0,
             strum_ms: 0.0,
@@ -164,6 +167,13 @@ impl Controller {
             self.glide(),
             Command::Reverb(v.reverb),
         ]
+    }
+
+    /// A key was released. With `ring` off in live mode, letting go of the current chord's
+    /// root letter or its chord key releases the chord (returns `[Command::Release]` and resets
+    /// the voice leader). Otherwise nothing happens.
+    pub fn key_up(&mut self, input: KeyInput, now: u64) -> Vec<Command> {
+        todo!()
     }
 
     /// Change the loop tempo, clamped to 60..=180 BPM. While the loop plays, the current beat
@@ -514,6 +524,57 @@ impl Controller {
         }
 
         crate::wav::wav_24bit(&left, &right, sample_rate)
+    }
+}
+
+#[cfg(test)]
+mod release_tests {
+    use super::*;
+
+    fn letter(c: char) -> KeyInput {
+        KeyInput { character: Some(c), phys: keymap::Phys::Letter, shift: false }
+    }
+    fn comma() -> KeyInput {
+        KeyInput { character: Some(','), phys: keymap::Phys::Comma, shift: false }
+    }
+
+    #[test]
+    fn ringing_chords_ignore_key_up() {
+        let mut c = Controller::new(48_000.0);
+        c.key(letter('d'), 0);
+        c.key(comma(), 0);
+        assert!(c.key_up(comma(), 10).is_empty());
+        assert!(c.key_up(letter('d'), 10).is_empty());
+    }
+
+    #[test]
+    fn releasing_the_chord_key_stops_the_chord_when_ring_is_off() {
+        let mut c = Controller::new(48_000.0);
+        c.ring = false;
+        c.key(letter('d'), 0);
+        c.key(comma(), 0);
+        assert_eq!(c.key_up(comma(), 10), vec![Command::Release]);
+    }
+
+    #[test]
+    fn releasing_the_root_letter_also_stops_it() {
+        let mut c = Controller::new(48_000.0);
+        c.ring = false;
+        c.key(letter('d'), 0);
+        c.key(comma(), 0);
+        assert_eq!(c.key_up(letter('d'), 10), vec![Command::Release]);
+    }
+
+    #[test]
+    fn unrelated_keys_and_loop_mode_do_nothing() {
+        let mut c = Controller::new(48_000.0);
+        c.ring = false;
+        c.key(letter('d'), 0);
+        c.key(comma(), 0);
+        assert!(c.key_up(letter('k'), 10).is_empty(), "sus4 key is not the current chord");
+        assert!(c.key_up(letter('g'), 10).is_empty(), "G is not the current root");
+        c.set_mode(Mode::Loop);
+        assert!(c.key_up(comma(), 20).is_empty());
     }
 }
 
