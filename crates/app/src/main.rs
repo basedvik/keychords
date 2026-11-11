@@ -203,6 +203,8 @@ fn on_key_up(s: &mut State, e: &KeyEvent, _: &mut Tx) -> bool {
         if let Some(id) = CapId::of(&input) {
             s.held.retain(|h| *h != id);
         }
+        let cmds = s.ctl.key_up(input, s.now());
+        s.send(cmds);
     }
     false
 }
@@ -268,12 +270,10 @@ fn header(s: &State) -> El {
         row_ = row_.child(vibe_pill(v, active));
     }
     row_.child(el().grow(1.0))
-        .child(meter(s.meter))
-        .child(text(s.status.clone()).font(TextStyle::new(14.0, 400.0)).color(c(theme::INK_SOFT)))
 }
 
 fn vibe_pill(v: vibes::Vibe, active: bool) -> El {
-    el().px(12.0).py(6.0).radius(14.0)
+    el().px(6.0).py(6.0).radius(14.0)
         .fill(if active { c(theme::INK) } else { Color { a: 0.0, ..c(theme::CAP) } })
         .border(1.0, if active { c(theme::INK) } else { c(theme::CAP_EDGE) })
         .on_press(move |s: &mut State| {
@@ -281,7 +281,7 @@ fn vibe_pill(v: vibes::Vibe, active: bool) -> El {
             let cmds = s.ctl.apply_vibe(&v);
             s.send(cmds);
         })
-        .child(text(v.name).font(TextStyle::new(14.0, 500.0))
+        .child(text(v.name).font(TextStyle::new(13.0, 500.0))
             .color(if active { c(theme::CAP) } else { c(theme::INK_SOFT) }))
 }
 
@@ -377,7 +377,7 @@ fn voice_canvas(s: &State) -> El {
 
     // The current root's hue: lightest for the top voice, most saturated for the bass.
     let root = s.ctl.root.unwrap_or(0);
-    let voice_col = |v: usize| mix_white(theme::root_color(root), 0.08 * v as f32);
+    let voice_col = |v: usize| mix_white(theme::root_color(root), 0.04 * v as f32);
 
     let mut shape = Shape::new();
     // Faint guide at every C from C2 to C6.
@@ -543,7 +543,7 @@ fn keymap_panel(s: &State) -> El {
                     (q.key_label().to_string(), tint, c(theme::INK), TextStyle::new(13.0, 500.0), false)
                 }
                 Some(KeyAction::Sound(i)) => {
-                    (vibes[i as usize].name.to_string(), c(theme::CAP), c(theme::INK_SOFT), TextStyle::new(13.0, 500.0), false)
+                    (short_vibe_name(&vibes[i as usize]).to_string(), c(theme::CAP), c(theme::INK_SOFT), TextStyle::new(11.0, 500.0), false)
                 }
                 Some(KeyAction::OctaveDown) => ("octave −".into(), c(theme::CAP), c(theme::INK_SOFT), TextStyle::new(13.0, 500.0), false),
                 Some(KeyAction::OctaveUp) => ("octave +".into(), c(theme::CAP), c(theme::INK_SOFT), TextStyle::new(13.0, 500.0), false),
@@ -636,6 +636,16 @@ fn keymap_panel(s: &State) -> El {
 
 
 
+/// The short name for a vibe on its cap: the first word, with "Glass bells" and
+/// "String swell" renamed so they fit the 68 pt cap.
+fn short_vibe_name(v: &vibes::Vibe) -> &'static str {
+    match v.name {
+        "Glass bells" => "Bells",
+        "String swell" => "Strings",
+        _ => v.name.split(' ').next().unwrap_or(v.name),
+    }
+}
+
 /// A horizontal drag slider: 140 pt track, filled part, 14 pt round thumb.
 fn slider(label: &str, value: f32, min: f32, max: f32, format: String,
           apply: impl Fn(&mut State, f32) + 'static) -> El {
@@ -675,7 +685,7 @@ fn controls(s: &State) -> El {
         MidiMode::Mpe => "MIDI out MPE".to_string(),
     };
     let octave = s.ctl.leader.octave;
-    row().w_full().gap(14.0).items_center()
+    let line1 = row().w_full().gap(14.0).items_center()
         .child(slider("Glide", s.ctl.glide_ms, 0.0, 800.0, format!("{} ms", s.ctl.glide_ms as i32),
             |s, v| { s.ctl.glide_ms = v; let g = s.ctl.glide(); s.send(vec![g]); }))
         .child(slider("Strum", s.ctl.strum_ms, 0.0, 160.0, format!("{} ms", s.ctl.strum_ms as i32),
@@ -689,6 +699,8 @@ fn controls(s: &State) -> El {
             .child(text(format!("{octave:+}")).font(TextStyle::new(14.0, 500.0)).color(c(theme::INK)))
             .child(text("▶".to_string()).font(TextStyle::new(14.0, 500.0)).color(c(theme::INK_SOFT))
                 .on_press(|s: &mut State| s.press(KeyInput { character: Some('w'), phys: Phys::Letter, shift: false }))))
+        .child(el().grow(1.0));
+    let line2 = row().w_full().gap(10.0).items_center()
         .child(toggle_pill("Smooth voice leading", s.ctl.leader.smooth, |s: &mut State| {
             s.ctl.leader.smooth = !s.ctl.leader.smooth;
         }))
@@ -701,6 +713,13 @@ fn controls(s: &State) -> El {
             s.send(vec![Command::OwnSound(o)]);
         }))
         .child(toggle_pill(&midi, s.midi != MidiMode::Off, |s: &mut State| s.cycle_midi()))
+        .child(toggle_pill("Ring", s.ctl.ring, |s: &mut State| {
+            s.ctl.ring = !s.ctl.ring;
+        }))
+        .child(el().grow(1.0))
+        .child(meter(s.meter))
+        .child(text(s.status.clone()).font(TextStyle::new(14.0, 400.0)).color(c(theme::INK_SOFT)));
+    col().w_full().gap(10.0).child(line1).child(line2)
 }
 
 fn view(s: &State, _: &mut Cx<State>) -> El {
