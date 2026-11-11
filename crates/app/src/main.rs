@@ -424,9 +424,8 @@ fn cap(face: Color, edge: Color, held: bool, input: KeyInput, children: El) -> E
     let sink = held as u8 as f32 * 2.0;
     let edge_h = if held { 1.0 } else { 3.0 };
     let r = 10.0;
-    el().size(68.0, 58.0).center()
-        .child(el().w(68.0).h(58.0 + edge_h).radius(r).fill(edge).mt(2.0).ml(sink))
-        .child(el().w(68.0).h(58.0).radius(r).fill(face).mt(sink).ml(sink).child(children))
+    el().size(68.0, 58.0 + edge_h).radius(r).fill(edge)
+        .child(el().size(68.0, 58.0).radius(r).fill(face).mt(sink).center().child(children))
         .on_press(move |s: &mut State| s.press(input))
 }
 
