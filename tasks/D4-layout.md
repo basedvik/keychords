@@ -10,6 +10,12 @@ Restyle the rest of the window to the layout and tokens in `design.md` (read the
 5. **Controls row:** replace the − value + steppers for glide, strum and reverb with **drag sliders**: a 140 pt track (`theme::CAP_EDGE`) with a filled part (`theme::INK`) and a 14 pt round thumb; drag horizontally to set the value (look for `on_drag` in Rune; the sketch example at `.research/rune/examples/sketch/` uses it). Show the value as text after the label ("Glide 220 ms"). Keep octave as ◀ value ▶ and keep the toggles, styled as quiet outline pills.
 6. Mode tabs ("Play live", "Loop") become a two-segment control in the header.
 
+7. **Keyboard fixes from the D3 review** (in `cap()` / `keymap_panel`):
+   - Every cap shows its **key** in small type (size 11, `theme::INK_SOFT`) at the top-left of the face (e.g. "U" on maj7, "1" on a vibe, "Q" on octave −); the function label stays centred. Root caps show only their big letter.
+   - The current root and current quality must be **unmistakable**: a 3 pt border *on the face* (root colour for the root cap, `theme::INK` for the quality cap), not just the bottom edge.
+   - Suggestion halos: a 3 pt border on the face in the suggestion's root colour at 70% alpha.
+   - Keys 1–6 are vibes now: label them with the vibe names from `vibes::vibes()`.
+
 ## Files you may edit
 - crates/app/src/main.rs
 
