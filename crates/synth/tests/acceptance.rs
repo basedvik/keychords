@@ -39,7 +39,15 @@ fn period(x: &[f32]) -> usize {
 #[test]
 fn labels_and_pitch() {
     let labels: Vec<_> = Patch::ALL.iter().map(|p| p.label()).collect();
-    assert_eq!(labels, ["Pad", "Saw", "E-piano", "Organ", "Pluck", "Bells"]);
+    assert_eq!(
+        labels,
+        [
+            "Pad", "Saw", "E-piano", "Organ", "Pluck", "Bells", "Koto", "Music box", "Banjo",
+            "Sax section", "Clarinet choir", "Pizzicato strings", "12-string guitar",
+            "Vibraphone", "Felt piano", "Handpan", "Kalimba", "Harp", "Choir",
+            "String section", "French horns", "Theremin", "Neo-soul guitar",
+        ]
+    );
     assert!((midi_to_hz(69.0) - 440.0).abs() < 1e-3);
     assert!((midi_to_hz(81.0) - 880.0).abs() < 1e-2);
     assert!((midi_to_hz(57.0) - 220.0).abs() < 1e-3);
