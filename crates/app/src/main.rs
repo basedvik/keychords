@@ -2,7 +2,11 @@
 
 mod audio;
 mod controller;
+mod reverb;
+mod theme;
+mod vibes;
 mod engine;
+mod wav;
 
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -10,7 +14,7 @@ use std::time::Duration;
 use keymap::{KeyAction, KeyInput, Phys};
 use rune::color::hex;
 use rune::tok::{self, type_};
-use rune::{col, el, row, text, AppSpec, Color, Cx, El, Key, KeyEvent, PhysicalKeyCode, TextStyle, Tx};
+use rune::{canvas, col, el, row, text, AppSpec, Color, Cx, El, Key, KeyEvent, LineCap, Path, PhysicalKeyCode, Shape, TextStyle, Tx};
 
 use controller::{Controller, Mode};
 use engine::{Command, MidiMode};
@@ -22,6 +26,9 @@ struct State {
     midi: MidiMode,
     own_sound: bool,
     volume_db: f32,
+    reverb: f32,
+    /// Output level for the meter, 0..=1, with a falling decay.
+    meter: f32,
 }
 
 impl State {
@@ -47,7 +54,9 @@ impl State {
             status,
             midi: MidiMode::Off,
             own_sound: true,
-            volume_db: -6.0,
+            volume_db: 0.0,
+            reverb: 0.3,
+            meter: 0.0,
         };
         let glide = s.ctl.glide();
         s.send(vec![glide]);
@@ -147,7 +156,11 @@ fn poll(s: &mut State, _: f64, _: &mut Tx) -> bool {
     let now = s.now();
     let cmds = s.ctl.poll(now);
     s.send(cmds);
-    s.ctl.playing
+    if let Some(a) = &s.audio {
+        let peak = f32::from_bits(a.peak.swap(0, Ordering::Relaxed));
+        s.meter = peak.max(s.meter * 0.88);
+    }
+    s.ctl.playing || s.audio.is_some()
 }
 
 fn setup(_: &mut State, waker: rune::Waker) {
@@ -189,7 +202,18 @@ fn header(s: &State) -> El {
         .child(button("Play live", live, |s: &mut State| { let c = s.ctl.set_mode(Mode::Live); s.send(c); }))
         .child(button("Loop", !live, |s: &mut State| { let c = s.ctl.set_mode(Mode::Loop); s.send(c); }))
         .child(el().grow(1.0))
+        .child(meter(s.meter))
         .child(text(s.status.clone()).font(type_::LABEL).color(t.text_secondary))
+}
+
+/// A horizontal output-level bar: green, then amber near full scale.
+fn meter(level: f32) -> El {
+    let t = tok::theme(true);
+    let w = 120.0;
+    let fill = (level.clamp(0.0, 1.0) * w).max(2.0);
+    let col = if level > 0.85 { c("#F6A04D") } else { c("#5FD38D") };
+    el().size(w, 8.0).radius(4.0).fill(t.control_track).clip_rounded(4.0)
+        .child(el().size(fill, 8.0).radius(4.0).fill(col))
 }
 
 fn chord_panel(s: &State) -> El {
@@ -212,35 +236,85 @@ fn note_name(n: u8) -> String {
     format!("{}{}", chords::root_name(n % 12), n as i32 / 12 - 1)
 }
 
-/// Each voice drawn as a bar per chord: the plateau view of the reference's voice lines.
-fn lines_panel(s: &State) -> El {
+/// Seconds of history the live canvas shows, and its coordinate space.
+const WINDOW_S: f64 = 8.0;
+const VB_W: f32 = 1000.0;
+const VB_H: f32 = 300.0;
+const PITCH_LO: f32 = 36.0;
+const PITCH_HI: f32 = 90.0;
+
+fn pitch_y(p: f32) -> f32 {
+    VB_H - (p.clamp(PITCH_LO, PITCH_HI) - PITCH_LO) / (PITCH_HI - PITCH_LO) * VB_H
+}
+
+fn notes_of(v: &voicing::Voicing) -> Vec<u8> {
+    let mut ns = vec![v.bass];
+    ns.extend(&v.upper);
+    ns
+}
+
+/// The live voice lines: a scrolling timeline where each voice holds its note, then curves
+/// into its next note over the glide time, ending at a "now" line with a dot per sounding voice.
+fn voice_canvas(s: &State) -> El {
     let t = tok::theme(true);
-    let (w, h) = (600.0f32, 220.0f32);
-    let cols: Vec<Vec<u8>> = match s.ctl.mode {
-        Mode::Live => s.ctl.history.iter().map(|(_, v)| {
-            let mut ns = vec![v.bass];
-            ns.extend(&v.upper);
-            ns
-        }).collect(),
-        Mode::Loop => (0..s.ctl.lp.slots.len()).filter_map(|i| s.ctl.loop_voicing(i)).map(|v| {
-            let mut ns = vec![v.bass];
-            ns.extend(&v.upper);
-            ns
-        }).collect(),
+    let hist = &s.ctl.history;
+    let at = &s.ctl.history_at;
+    // Live: the engine clock. Headless or silent: just after the last chord.
+    let now = match &s.audio {
+        Some(a) => a.now.load(Ordering::Relaxed) as f64 / a.sample_rate,
+        None => at.last().map_or(0.0, |&l| l + 1.5),
     };
-    let n = cols.len().max(1) as f32;
-    let cw = w / n.max(4.0);
-    let y = |p: u8| h - (p.clamp(36, 92) as f32 - 36.0) / 56.0 * h;
-    let mut panel = el().size(w, h).radius(10.0).fill(t.card).clip_rounded(10.0);
-    for (i, notes) in cols.iter().enumerate() {
-        for (v, &p) in notes.iter().enumerate() {
-            panel = panel.child(
-                el().absolute(i as f32 * cw + 6.0, y(p) - 2.0).size(cw - 12.0, 4.0).radius(2.0)
-                    .fill(c(VOICE_COLORS[v.min(6)])),
-            );
+    let left = now - WINDOW_S;
+    let x = |time: f64| ((time - left) / WINDOW_S * VB_W as f64) as f32;
+    let glide = s.ctl.glide_ms as f64 / 1000.0;
+
+    let mut shape = Shape::new();
+    // Faint guide at every C from C2 to C6.
+    for c in (36..=84).step_by(12) {
+        let y = pitch_y(c as f32);
+        shape = shape.line([0.0, y], [VB_W, y], 1.0, LineCap::Butt, c_alpha(t.separator, 0.5));
+    }
+    for i in 0..hist.len() {
+        let here = notes_of(&hist[i].1);
+        let start = at[i];
+        let next = hist.get(i + 1).map(|(_, v)| notes_of(v));
+        let end = at.get(i + 1).copied().unwrap_or(now);
+        for (v, &p) in here.iter().enumerate() {
+            let y0 = pitch_y(p as f32);
+            let col = c(VOICE_COLORS[v.min(6)]);
+            // Hold from this chord's landing until the next chord starts.
+            // A held line begins where the slide into it lands (the first chord has no slide).
+            let held_from = if i == 0 { start } else { start + glide.max(0.02) };
+            let mut path = Path::new().move_to([x(held_from), y0]).line_to([x(end), y0]);
+            if let Some(nx) = next.as_ref().and_then(|n| n.get(v)) {
+                // S-curve into the next note over the glide time.
+                let (x0, x1, y1) = (x(end), x(end + glide.max(0.02)), pitch_y(*nx as f32));
+                let mid = (x0 + x1) / 2.0;
+                path = path.cubic_to([mid, y0], [mid, y1], [x1, y1]);
+            }
+            shape = shape.stroke_path(&path, if v == 0 { 3.0 } else { 2.5 }, LineCap::Round, col);
         }
     }
-    panel
+    // Now line, and a dot per sounding voice at its live pitch.
+    shape = shape.line([VB_W - 1.0, 0.0], [VB_W - 1.0, VB_H], 1.5, LineCap::Butt, c_alpha(t.text_secondary, 0.6));
+    let live: Vec<Option<f32>> = match &s.audio {
+        Some(a) => a.live.iter().map(|b| {
+            let f = f32::from_bits(b.load(Ordering::Relaxed));
+            (!f.is_nan()).then_some(f)
+        }).collect(),
+        None => hist.last().map(|(_, v)| notes_of(v).iter().map(|&n| Some(n as f32)).collect()).unwrap_or_default(),
+    };
+    for (v, p) in live.iter().enumerate() {
+        if let Some(p) = p {
+            let (cx, cy) = (VB_W - 1.0, pitch_y(*p));
+            shape = shape.line([cx, cy], [cx, cy], 9.0, LineCap::Round, c(VOICE_COLORS[v.min(6)]));
+        }
+    }
+    canvas(shape.view_box(VB_W, VB_H)).key("voices").grow(1.0).h(260.0).radius(10.0).fill(t.card).clip_rounded(10.0)
+}
+
+fn c_alpha(col: Color, a: f32) -> Color {
+    Color { a: col.a * a, ..col }
 }
 
 fn loop_strip(s: &State) -> El {
@@ -370,6 +444,9 @@ fn controls(s: &State) -> El {
         .child(stepper(format!("Vol {:.0} dB", s.volume_db),
             |s| { s.volume_db = (s.volume_db - 3.0).max(-48.0); let v = s.volume_db; s.send(vec![Command::VolumeDb(v)]); },
             |s| { s.volume_db = (s.volume_db + 3.0).min(0.0); let v = s.volume_db; s.send(vec![Command::VolumeDb(v)]); }))
+        .child(stepper(format!("Reverb {:.0}%", s.reverb * 100.0),
+            |s| { s.reverb = (s.reverb - 0.1).max(0.0); let r = s.reverb; s.send(vec![Command::Reverb(r)]); },
+            |s| { s.reverb = (s.reverb + 0.1).min(1.0); let r = s.reverb; s.send(vec![Command::Reverb(r)]); }))
         .child(button("Smooth voice leading", s.ctl.leader.smooth, |s: &mut State| {
             s.ctl.leader.smooth = !s.ctl.leader.smooth;
         }))
@@ -388,7 +465,7 @@ fn view(s: &State, _: &mut Cx<State>) -> El {
     let t = tok::theme(true);
     let mut body = col().w_full().h_full().padding(24.0).gap(18.0).fill(t.bg)
         .child(header(s))
-        .child(row().gap(18.0).child(chord_panel(s)).child(lines_panel(s)));
+        .child(row().w_full().gap(18.0).child(chord_panel(s)).child(voice_canvas(s)));
     if s.ctl.mode == Mode::Loop {
         body = body.child(loop_strip(s));
     }
@@ -405,9 +482,32 @@ fn demo(s: &mut State) {
         s.press(KeyInput { character: Some(l), phys: Phys::Letter, shift: false });
         s.press(KeyInput { character: Some(k), phys: phys(k), shift: false });
     }
+    let n = s.ctl.history_at.len();
+    for (i, t) in s.ctl.history_at.iter_mut().enumerate() {
+        *t = (i as f64 - n as f64) * 1.6 + 4.0;
+    }
+}
+
+/// `--audio-test`: open the device exactly as the app does, play a chord, report what reached it.
+fn audio_test() {
+    match audio::start() {
+        Err(e) => println!("audio::start failed: {e}"),
+        Ok(mut a) => {
+            println!("device: {} | {} Hz | {} ch | midi: {:?}", a.device_name, a.sample_rate, a.channels, a.midi_port);
+            let _ = a.commands.push(Command::Play(engine::Notes::from_slice(&[50, 57, 65, 72, 76])));
+            for i in 0..8 {
+                std::thread::sleep(Duration::from_millis(250));
+                let peak = f32::from_bits(a.peak.swap(0, Ordering::Relaxed));
+                println!("t={:.2}s clock={} peak={peak:.4}", (i + 1) as f32 * 0.25, a.now.load(Ordering::Relaxed));
+            }
+        }
+    }
 }
 
 fn main() {
+    if std::env::args().any(|a| a == "--audio-test") {
+        return audio_test();
+    }
     rune::run(AppSpec::<State> {
         scenes: &[("demo", demo)],
         poll: Some(poll),

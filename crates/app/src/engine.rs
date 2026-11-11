@@ -5,6 +5,11 @@ use glide::{Glider, Params, MAX_VOICES};
 use midi::mpe::{MpeOut, Msg, PlainOut};
 use synth::{Patch, Synth};
 
+use crate::reverb::Reverb;
+
+/// Master make-up gain before the soft limiter.
+const MASTER_GAIN: f32 = 2.2;
+
 /// Pitches are pushed to the synth and MIDI out once per control block.
 pub const CONTROL_BLOCK: usize = 32;
 const VELOCITY: u8 = 100;
@@ -49,6 +54,8 @@ pub enum Command {
     VolumeDb(f32),
     OwnSound(bool),
     Midi(MidiMode),
+    /// 0..=1 reverb mix.
+    Reverb(f32),
 }
 
 pub struct Engine {
@@ -56,6 +63,7 @@ pub struct Engine {
     now: u64,
     glider: Glider,
     synth: Synth,
+    reverb: Reverb,
     own_sound: bool,
     midi_mode: MidiMode,
     mpe: MpeOut,
@@ -71,12 +79,13 @@ impl Engine {
     pub fn new(sample_rate: f32) -> Engine {
         let params = Params { glide_ms: 220.0, strum_ms: 0.0, sample_rate };
         let mut synth = Synth::new(sample_rate);
-        synth.set_volume_db(-6.0);
+        synth.set_volume_db(0.0);
         Engine {
             sample_rate,
             now: 0,
             glider: Glider::new(params),
             synth,
+            reverb: Reverb::new(sample_rate),
             own_sound: true,
             midi_mode: MidiMode::Off,
             mpe: MpeOut::new(),
@@ -85,6 +94,11 @@ impl Engine {
             sounding: [false; MAX_VOICES],
             plain_pending: None,
         }
+    }
+
+    /// Each voice's pitch right now (fractional MIDI), `None` when silent.
+    pub fn voice_pitches(&self) -> [Option<f32>; MAX_VOICES] {
+        std::array::from_fn(|v| self.glider.pitch(v, self.now))
     }
 
     /// Absolute sample position of the next sample `process` will render.
@@ -118,6 +132,7 @@ impl Engine {
             }
             Command::Patch(p) => self.synth.set_patch(p),
             Command::VolumeDb(db) => self.synth.set_volume_db(db),
+            Command::Reverb(mix) => self.reverb.mix = mix.clamp(0.0, 1.0),
             Command::OwnSound(on) => self.own_sound = on,
             Command::Midi(mode) => {
                 midi.extend(self.mpe.all_off());
@@ -144,7 +159,13 @@ impl Engine {
             self.synth.render(&mut left[off..end], &mut right[off..end]);
             off = end;
         }
-        if !self.own_sound {
+        if self.own_sound {
+            self.reverb.process(left, right);
+            // Make-up gain into a soft limiter: loud on laptop speakers, never clipping.
+            for v in left.iter_mut().chain(right.iter_mut()) {
+                *v = (*v * MASTER_GAIN).tanh() * 0.9;
+            }
+        } else {
             left.fill(0.0);
             right.fill(0.0);
         }
