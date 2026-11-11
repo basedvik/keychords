@@ -169,6 +169,9 @@ All times are local (Nov 10, 2026), taken from logs, git and opencode's session 
 | 16:48:43 | **T11a retry 2 timed out after 40 min with no file changes** (6 turns, 33.7k output tokens, all reasoning). | The mini can't do this task in either mode. |
 | 16:48–19:23 | You were away; both machines sat idle (chiz since 16:12). | Cost of a supervisor-driven queue: when the supervisor's turn ends, nothing gets dispatched. An autonomous queue runner (recommendation #1) would have kept them busy. |
 | 19:23 | T12 merged: **workspace 116 passed, 0 failed.** T11a re-assigned to **chiz (thinking on)** with the same notes; mini given T13 (README, thinking off), a low-risk writing task. | Route by capability, not by intention to keep everyone busy. |
+| 19:28–19:42 | T13 README retry hung at startup (no session created, no request to the mini); killed and relaunched. | Likely an opencode lock between concurrent processes; unconfirmed. |
+| 19:42–19:46 | Relaunched README retry pulled `model-quality.md` and other docs into a **~60k-token prompt**; the mini showed a busy slot but you saw ~6% GPU and no memory growth. | A six-line doc fix should never get a 60k-token prompt. |
+| 19:46 | **You: pack it in.** All workers stopped (T11b on chiz and the T13 README retry); nothing in progress was merged. | — |
 
 ## Token ledger: delegating vs doing it myself
 
@@ -220,4 +223,21 @@ The ledger shows the break-even condition: **(implementation tokens the worker s
 
 ## Summary
 
-_Written once both queues have run._
+**Outcome:** a working Rust re-implementation of the Swan Glide design. **10 crates + the Rune app, 124 tests, 0 failures, workspace clippy-clean.** It runs end to end (headless screenshot), with MIDI export/import, WAV export, 23 sounds and loop mode. Not finished: T11b (export/import buttons and drag-and-drop in the UI) and T13 (README; a draft with factual errors sits unmerged in `../kc-wt/T13`).
+
+**Who wrote what (merged implementation code):** the local machines wrote every crate body after the skeletons: T1, T2, T5b, T6, T8 on the Mac mini; T3, T4, T5a, T9, T10, T11a, T12 on chiz. Claude wrote the skeletons, the first ~850 lines of tests, the app shell (engine, controller, audio, view), specs, reviews, merges and fixes, plus **4 review catches the tests missed** (keymap split root, glide `lands_at` at zero glide, and two lint fixes) and **3 bugs in Claude's own tests** (glide lint, synth pitch detector, contradictory label test).
+
+**What predicted success:**
+| Task shape | Thinking off | Thinking on |
+|---|---|---|
+| Claude wrote the tests; translation-shaped | **Best:** fast (2–6 min); sometimes needs one review note | Slow (deliberates 10–25 min) but careful |
+| Worker writes its own tests | **Fails:** wrong expected values (T10 #1, T11a #2), then edits correct code to match | **Good:** derivations shown, honest reports (T9, T10 #2, T11a on chiz, T12) |
+| Open-ended (DSP engine, large app glue) | Mini fails unless given pseudo-code (T6 #2 succeeded) | Mini: 30–40 min timeouts with no output (T6 #1, T11a #3); chiz: succeeds |
+
+**Machines:** chiz (dense 27B, Q8) is the reliable worker for anything requiring judgment; with thinking on it's slow but its code needed almost no fixing. The Mac mini (MoE 3B-active, Q4) is fast and good on narrow, fully specified tasks, but it corrupts rare Unicode, strays out of scope, and stalls on anything open-ended.
+
+**Biggest process lessons:**
+1. Supervision cost dominated. Claude's watching, diagnosing and merging used far more tokens than writing the code would have, and with no autonomous queue the machines sat idle for ~3 h while you were away.
+2. Harness problems caused as many failures as model problems: opencode's hidden 32k output cap, stale worktrees missing config, a script edited while running, pattern-based `pkill` hitting the wrong process, zsh PID-list splitting, and spec drift in verify commands.
+3. Specs should carry pseudo-code for algorithms, exact byte or note tables for anything numeric, permission-enforced file scopes, and small prompts.
+
