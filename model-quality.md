@@ -159,6 +159,8 @@ All times are local (Nov 10, 2026), taken from logs, git and opencode's session 
 | 15:16–15:30 | T10 retry (chiz, thinking on): one reasoning pass of ~42k tokens (~13 min), hand-checking every MIDI number and expected score. | — |
 | 15:30:59 | **T10: 21/21**, about 1 min after leaving reasoning. Report: **all 7 failures were wrong tests**, each corrected with explicit score derivations (Claude spot-checked G7: dom7 4.25 > maj 2.75 > maj7 2.65), one test *strengthened*; code changes were only 2 clippy fixes. Merged (trivial `lib.rs` conflict with T9). **Workspace: 108 passed, 0 failed.** | Thinking on fixed what thinking off broke: careful, honest, well-reasoned test authoring. |
 | 15:32 | T12 (17 more sounds) dispatched to chiz, thinking on. Claude fixed a clippy error in its own `audio.rs` in both `main` and T11a's worktree, so T11a's `clippy -p app` gate can pass. **Workspace clippy-clean.** | Fix shared-crate lints before a worker's gate hits them. |
+| 15:45:03 | **Scope violation:** T11a (mini, thinking on, 28 min) wrote its own `crates/midi/src/recognize.rs` (its worktree predated T10's merge; the spec said to *skip* recognition in that case) and made `Engine` fields public in `engine.rs`. Stopped (Claude's first `kill` failed on the zsh word-splitting quirk **again**; then `xargs`). Out-of-scope edits reverted, its real work kept, `main` merged in. | Second discipline breach of the day. Instructions alone don't enforce scope. |
+| 15:46:22 | T11a retry on the mini, thinking off, with notes: use `Engine`'s public API only; use the merged recognizer; allowed files listed exactly. | — |
 
 ## Token ledger: delegating vs doing it myself
 
@@ -205,7 +207,8 @@ The ledger shows the break-even condition: **(implementation tokens the worker s
    - The **mini** writes immediately and iterates with the compiler. That's ideal for test-driven, mechanical tasks.
    - **chiz** deliberates. Use it with thinking off for translation, or with thinking on for large-context reading (cross-file refactors, writing tests from a spec, reviewing a diff), where long reasoning earns its keep.
 6. **Specs tuned to each model's weaknesses:** `\u{}` escapes for non-ASCII (mini); enum variants by name, never by index; pin down edge cases the obvious tests miss, such as a non-C split.
-7. **Measure every task automatically.** `dispatch.sh` should append each session's token counts to a ledger file, so this table maintains itself.
+7. **Enforce scope with permissions, not just instructions.** Two workers left their lanes (T10 tried `/tmp` + `rustc`; T11a wrote `midi/src/recognize.rs` and made `Engine` fields public). opencode's sandbox already blocked the `/tmp` write. Generate a per-task opencode permission config that denies edits outside the task's allowed paths.
+8. **Measure every task automatically.** `dispatch.sh` should append each session's token counts to a ledger file, so this table maintains itself.
 
 ## Summary
 
