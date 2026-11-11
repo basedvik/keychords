@@ -33,6 +33,9 @@ mkdir -p "$root/logs"
 log="$root/logs/$id.log"
 echo "[$(date +%T)] $id → $machine ($model) in $wt" | tee "$log"
 cd "$wt"
+# One shared build directory: keeps worktrees small (opencode snapshots them at startup)
+# and stops every task rebuilding the same crates.
+export CARGO_TARGET_DIR="$root/../kc-target"
 start=$(date +%s)
 OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX=100000 timeout "${TASK_TIMEOUT:-1800}" opencode run -m "$model" "$(cat "$spec")" >>"$log" 2>&1 || echo "[exit $?]" >>"$log"
 echo "[$(date +%T)] $id finished in $(( $(date +%s) - start ))s" | tee -a "$log"
