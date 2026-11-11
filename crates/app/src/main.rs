@@ -6,6 +6,7 @@ mod reverb;
 mod theme;
 mod vibes;
 mod engine;
+mod hints;
 mod wav;
 
 use std::sync::atomic::Ordering;
