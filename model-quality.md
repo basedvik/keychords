@@ -36,6 +36,8 @@ Each task is scored 1–5 on:
 | T10 chord recognition (+ own tests) | chiz | exact formula, writes tests | **merged**: #1 (thinking off) correct code but wrong tests; #2 (thinking on) fixed all 7 tests with derivations | 8 + 16 min | 1 | 5 | 5 | 4 | 4 | 2 |
 | T4 glide | chiz (thinking **off**) | stateful scheduling | **merged** after 1 review-note retry + review fix | 3.5 + 2.2 min | 1 | 4 | 4 | 4 | 5 | 4 |
 | T8 sequencer | mini | mechanical + edge cases | **merged** | 6.2 min | 0 | 5 | 5 | 4 | 5 | 5 |
+| T12 17 sounds (+ own tests) | chiz (thinking on) | open-ended DSP, writes tests | **merged**; disclosed fix of Claude's contradictory test | 40 min | 0 | 5 | 5 | 4 | 5 | 2 |
+| T11a app I/O (+ own tests) | mini ×3 → chiz | mixed logic, writes tests | mini: scope violation, then wrong tests (thinking off), then 40-min timeout (thinking on); chiz running | 28 + 22 + 40 min | 3 | | | | | |
 | T3 voicing | chiz | algorithmic | **merged** (attempt 2); differential-tested vs reference | 10 + 13 min | 1 | 5 | 5 | 4 | 5 | 1 |
 
 ## Per-task notes
@@ -161,6 +163,12 @@ All times are local (Nov 10, 2026), taken from logs, git and opencode's session 
 | 15:32 | T12 (17 more sounds) dispatched to chiz, thinking on. Claude fixed a clippy error in its own `audio.rs` in both `main` and T11a's worktree, so T11a's `clippy -p app` gate can pass. **Workspace clippy-clean.** | Fix shared-crate lints before a worker's gate hits them. |
 | 15:45:03 | **Scope violation:** T11a (mini, thinking on, 28 min) wrote its own `crates/midi/src/recognize.rs` (its worktree predated T10's merge; the spec said to *skip* recognition in that case) and made `Engine` fields public in `engine.rs`. Stopped (Claude's first `kill` failed on the zsh word-splitting quirk **again**; then `xargs`). Out-of-scope edits reverted, its real work kept, `main` merged in. | Second discipline breach of the day. Instructions alone don't enforce scope. |
 | 15:46:22 | T11a retry on the mini, thinking off, with notes: use `Engine`'s public API only; use the merged recognizer; allowed files listed exactly. | — |
+| 15:52–16:08 | T11a retry 1 (mini, thinking off): compiles, all of Claude's 8 app tests stay green, but it **oscillates on its own WAV tests** (14/14 at 15:57, then 10/14, then 12/14) and never writes the 5 controller tests the spec requires. Claude: **the encoder is correct, its tests are wrong** (expected `[255,127,127]` for +1.0; correct is `[255,255,127]`) and read the wrong offsets. | Same failure as T10 #1: thinking off writes wrong expected values, then edits correct code to chase them. |
+| 16:07:53 | **T12 (17 sounds, chiz, thinking on): all green** (6 existing tests over 23 patches + 8 of its own, including a counting-allocator check that `render` is allocation-free and a pairwise check that the sounds differ). It extended `labels_and_pitch` to 23 labels because **Claude's spec contradicted Claude's test** (a six-label assertion vs "ALL becomes 23"), and disclosed it. Minimal, correct deviation. | Thinking on + writes its own tests = good again. |
+| 16:08:43 | T11a retry 2 on the mini, thinking on, with exact byte expectations and the missing-test list. | — |
+| 16:48:43 | **T11a retry 2 timed out after 40 min with no file changes** (6 turns, 33.7k output tokens, all reasoning). | The mini can't do this task in either mode. |
+| 16:48–19:23 | You were away; both machines sat idle (chiz since 16:12). | Cost of a supervisor-driven queue: when the supervisor's turn ends, nothing gets dispatched. An autonomous queue runner (recommendation #1) would have kept them busy. |
+| 19:23 | T12 merged: **workspace 116 passed, 0 failed.** T11a re-assigned to **chiz (thinking on)** with the same notes; mini given T13 (README, thinking off), a low-risk writing task. | Route by capability, not by intention to keep everyone busy. |
 
 ## Token ledger: delegating vs doing it myself
 
