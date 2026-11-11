@@ -1,13 +1,17 @@
 //! UI-thread logic: key presses → chords → voicings → engine commands. No Rune types here,
 //! so it is unit-testable; `main.rs` adapts Rune key events into `keymap::KeyInput`.
 
+#![allow(dead_code)]
+
 use chords::{Chord, PitchClass, Quality};
 use keymap::{KeyAction, KeyInput, KeyMap};
+use midi::export::{self, LoopExport};
+use midi::smf::Smf;
 use sequencer::{boundaries, Clock, Loop, Slot};
 use synth::Patch;
 use voicing::{voice_cycle, VoiceLeader, Voicing};
 
-use crate::engine::{Command, Notes};
+use crate::engine::{Command, Engine, Notes};
 
 const HISTORY: usize = 8;
 /// Extra lookahead beyond the glide time, covering UI frame jitter.
@@ -262,12 +266,216 @@ impl Controller {
         let beats = (now - self.origin) as f64 / self.clock.samples_per_beat();
         Some((beats / self.lp.slot_beats()) as usize % self.lp.slots.len())
     }
+
+    /// Serialize loop state as UTF-8 text lines (key=value).
+    ///
+    /// Format: `v=1`, `bars`, `per_bar`, `bpm`, `glide_ms`, `strum_ms`, `smooth` (0/1),
+    /// `octave`, and `slots` as a comma-separated list where each slot is `-` (empty),
+    /// `s` (silent), or `root:quality_index`.
+    pub fn state_bytes(&self) -> Vec<u8> {
+        let mut lines = Vec::new();
+        lines.push("v=1".to_string());
+        lines.push(format!("bars={}", self.lp.bars));
+        lines.push(format!("per_bar={}", self.lp.per_bar));
+        lines.push(format!("bpm={}", self.clock.bpm));
+        lines.push(format!("glide_ms={}", self.glide_ms));
+        lines.push(format!("strum_ms={}", self.strum_ms));
+        lines.push(format!("smooth={}", if self.leader.smooth { 1 } else { 0 }));
+        lines.push(format!("octave={}", self.leader.octave));
+        let slot_strs: Vec<String> = self.lp.slots.iter().map(|s| match s {
+            Slot::Empty => "-".to_string(),
+            Slot::Silent => "s".to_string(),
+            Slot::Chord(ch) => format!("{}:{}", ch.root, ch.quality.index()),
+        }).collect();
+        lines.push(format!("slots={}", slot_strs.join(",")));
+        lines.join("\n").into_bytes()
+    }
+
+    /// Restore loop state from UTF-8 text (key=value) lines produced by [`state_bytes`].
+    ///
+    /// Returns `false` on anything malformed, leaving the controller unchanged. Returns
+    /// `true` and re-voices the loop on success.
+    pub fn restore_state(&mut self, bytes: &[u8]) -> bool {
+        let text = match std::str::from_utf8(bytes) {
+            Ok(t) => t,
+            Err(_) => return false,
+        };
+        let mut bars: u8 = 0;
+        let mut per_bar: u8 = 0;
+        let mut bpm: f64 = 0.0;
+        let mut glide_ms: f32 = 0.0;
+        let mut strum_ms: f32 = 0.0;
+        let mut smooth: bool = false;
+        let mut octave: i8 = 0;
+        let mut slot_strs: Option<Vec<String>> = None;
+        for line in text.lines() {
+            let Some((k, v)) = line.split_once('=') else { return false };
+            match k {
+                "v" => {
+                    if v != "1" { return false; }
+                }
+                "bars" => { bars = match v.parse() { Ok(v) => v, Err(_) => return false }; }
+                "per_bar" => { per_bar = match v.parse() { Ok(v) => v, Err(_) => return false }; }
+                "bpm" => { bpm = match v.parse() { Ok(v) => v, Err(_) => return false }; }
+                "glide_ms" => { glide_ms = match v.parse() { Ok(v) => v, Err(_) => return false }; }
+                "strum_ms" => { strum_ms = match v.parse() { Ok(v) => v, Err(_) => return false }; }
+                "smooth" => {
+                    smooth = match v { "1" => true, "0" => false, _ => return false };
+                }
+                "octave" => { octave = match v.parse() { Ok(v) => v, Err(_) => return false }; }
+                "slots" => {
+                    slot_strs = Some(v.split(',').map(|s| s.to_string()).collect());
+                }
+                _ => return false,
+            }
+        }
+        let slots = match slot_strs {
+            Some(s) => s,
+            None => return false,
+        };
+        if bars != 4 && bars != 8 && bars != 16 && bars != 32 { return false; }
+        if per_bar != 1 && per_bar != 2 { return false; }
+        let expected_n: usize = (bars * per_bar) as usize;
+        if slots.len() != expected_n { return false; }
+        let new_slots: Vec<Slot> = slots.into_iter().filter_map(|s| {
+            if s == "-" {
+                Some(Slot::Empty)
+            } else if s == "s" {
+                Some(Slot::Silent)
+            } else {
+                let (root_s, qi_s) = s.split_once(':')?;
+                let root: PitchClass = root_s.parse().ok()?;
+                let qi: usize = qi_s.parse().ok()?;
+                let quality = Quality::from_index(qi)?;
+                Some(Slot::Chord(Chord::new(root, quality)))
+            }
+        }).collect();
+        if new_slots.len() != expected_n { return false; }
+        self.lp.bars = bars;
+        self.lp.per_bar = per_bar;
+        self.lp.slots = new_slots;
+        self.clock.bpm = bpm;
+        self.glide_ms = glide_ms;
+        self.strum_ms = strum_ms;
+        self.leader.smooth = smooth;
+        self.leader.octave = octave;
+        self.cursor = 0;
+        self.revoice_loop();
+        true
+    }
+
+    /// Export the loop as a Standard MIDI File (bytes).
+    pub fn export_midi(&self) -> Vec<u8> {
+        let voicings: Vec<Option<Vec<u8>>> = (0..self.lp.slots.len())
+            .map(|i| self.loop_voicing(i).map(|v| {
+                let mut notes = vec![v.bass];
+                notes.extend(v.upper);
+                notes
+            }))
+            .collect();
+        let names: Vec<Option<String>> = self.lp.slots.iter().map(|s| match s {
+            Slot::Chord(ch) => Some(ch.name()),
+            _ => None,
+        }).collect();
+        let export = LoopExport {
+            bpm: self.clock.bpm,
+            slot_beats: self.lp.slot_beats(),
+            glide_ms: self.glide_ms,
+            voicings,
+            names,
+            state: self.state_bytes(),
+        };
+        let smf = export::to_smf(&export);
+        smf.to_bytes()
+    }
+
+    /// Import a loop from Standard MIDI File bytes.
+    ///
+    /// If the file contains our app state, it is restored exactly. Otherwise the MIDI
+    /// note events are parsed and chords are written into a new loop of the smallest size
+    /// in {4, 8, 16, 32} bars that fits, with half-bar slots (`per_bar = 2`) and
+    /// `Slot::Silent` for unfilled slots.
+    pub fn import_midi(&mut self, bytes: &[u8]) -> Result<(), String> {
+        let smf = Smf::parse(bytes).map_err(|e: midi::smf::SmfError| format!("{:?}", e))?;
+        if let Some(state) = export::state_of(&smf) {
+            if !self.restore_state(&state) {
+                return Err("state parse failed".to_string());
+            }
+            self.mode = Mode::Loop;
+            return Ok(());
+        }
+        // `recognize` returns one entry per half bar, None where nothing matches.
+        let chords = midi::recognize::recognize(&smf);
+        let n = chords.len();
+        let bars = [4u8, 8, 16, 32].into_iter().find(|&b| (b * 2) as usize >= n).unwrap_or(32);
+        let total = (bars * 2) as usize;
+        let slots: Vec<Slot> = chords
+            .into_iter()
+            .map(|c| c.map(Slot::Chord).unwrap_or(Slot::Silent))
+            .chain(std::iter::repeat_n(Slot::Silent, total - n))
+            .collect();
+        self.lp.bars = bars;
+        self.lp.per_bar = 2;
+        self.lp.slots = slots;
+        self.cursor = 0;
+        self.revoice_loop();
+        self.mode = Mode::Loop;
+        Ok(())
+    }
+
+    /// Render one pass of the loop plus a 1-second tail as a 24-bit WAV file, offline, with
+    /// a fresh [`Engine`] (no MIDI). Sends the same `PlayAt`/`Release` commands, at the same
+    /// sample times, as [`Controller::poll`] would for one pass.
+    pub fn render_wav(&self, sample_rate: u32) -> Vec<u8> {
+        let clock = Clock { bpm: self.clock.bpm, sample_rate: sample_rate as f64 };
+        let slot_beats = self.lp.slot_beats();
+        let n = self.lp.slots.len();
+        let mut cmds: Vec<(u64, Command)> = Vec::new();
+        for k in 0..n {
+            let at = clock.beat_to_sample(k as f64 * slot_beats);
+            let prev = (k + n - 1) % n;
+            if k > 0 && self.loop_voicings[k] == self.loop_voicings[prev] {
+                continue;
+            }
+            match &self.loop_voicings[k] {
+                Some(v) => cmds.push((at, Command::PlayAt(notes_of(v), at))),
+                None => cmds.push((at, Command::Release)),
+            }
+        }
+        let total = clock.beat_to_sample(n as f64 * slot_beats) as usize + sample_rate as usize;
+
+        let mut engine = Engine::new(sample_rate as f32);
+        let mut midi = Vec::new();
+        let mut left = vec![0.0f32; total];
+        let mut right = vec![0.0f32; total];
+        // Run the engine up to each command's sample so that `Release` takes effect exactly
+        // on its boundary, as in `poll`.
+        let (mut off, mut ci) = (0usize, 0usize);
+        while ci < cmds.len() {
+            let at = cmds[ci].0 as usize;
+            while off < at {
+                let chunk = (at - off).min(512);
+                engine.process(&mut left[off..off + chunk], &mut right[off..off + chunk], &mut midi);
+                off += chunk;
+            }
+            engine.handle(cmds[ci].1, &mut midi);
+            ci += 1;
+        }
+        while off < total {
+            let chunk = (total - off).min(512);
+            engine.process(&mut left[off..off + chunk], &mut right[off..off + chunk], &mut midi);
+            off += chunk;
+        }
+
+        crate::wav::wav_24bit(&left, &right, sample_rate)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use keymap::Phys;
+    use midi::smf::{Event, Track};
 
     fn letter(c: char) -> KeyInput {
         KeyInput { character: Some(c), phys: Phys::Letter, shift: false }
@@ -339,5 +547,185 @@ mod tests {
         let second = c.poll(origin + 2000 - 250 + 1);
         assert!(matches!(second[..], [Command::PlayAt(_, at)] if at == origin + 2000));
         assert_eq!(c.playhead(origin + 2100), Some(1));
+    }
+
+    #[test]
+    fn state_bytes_round_trips_into_a_fresh_controller() {
+        let mut c = Controller::new(48_000.0);
+        c.lp.bars = 8;
+        c.lp.per_bar = 2;
+        c.lp.slots = vec![
+            Slot::Chord(Chord::new(2, Quality::Min9)),
+            Slot::Empty,
+            Slot::Silent,
+            Slot::Chord(Chord::new(7, Quality::Dom13)),
+            Slot::Empty,
+            Slot::Chord(Chord::new(0, Quality::Maj7)),
+            Slot::Silent,
+            Slot::Empty,
+            Slot::Empty,
+            Slot::Empty,
+            Slot::Empty,
+            Slot::Empty,
+            Slot::Empty,
+            Slot::Empty,
+            Slot::Empty,
+            Slot::Empty,
+        ];
+        c.clock.bpm = 112.0;
+        c.glide_ms = 333.0;
+        c.strum_ms = 25.0;
+        c.leader.smooth = true;
+        c.leader.octave = -1;
+        c.revoice_loop();
+
+        // Hand-written expected text: quality indices are Min9 = 13, Dom13 = 15, Maj7 = 4.
+        let text = String::from_utf8(c.state_bytes().clone()).unwrap();
+        assert_eq!(
+            text,
+            "v=1\nbars=8\nper_bar=2\nbpm=112\nglide_ms=333\nstrum_ms=25\nsmooth=1\noctave=-1\n\
+             slots=2:13,-,s,7:15,-,0:4,s,-,-,-,-,-,-,-,-,-"
+        );
+
+        let mut c2 = Controller::new(48_000.0);
+        assert!(c2.restore_state(&c.state_bytes()));
+        assert_eq!(c2.lp.bars, 8);
+        assert_eq!(c2.lp.per_bar, 2);
+        assert_eq!(c2.lp.slots, c.lp.slots);
+        assert_eq!(c2.clock.bpm, 112.0);
+        assert_eq!(c2.glide_ms, 333.0);
+        assert_eq!(c2.strum_ms, 25.0);
+        assert!(c2.leader.smooth);
+        assert_eq!(c2.leader.octave, -1);
+        for i in 0..16 {
+            assert_eq!(c2.loop_voicing(i), c.loop_voicing(i), "voicing {i}");
+        }
+    }
+
+    #[test]
+    fn restore_state_rejects_malformed_input_without_changes() {
+        let mut c = Controller::new(48_000.0);
+        c.lp.slots[0] = Slot::Chord(Chord::new(0, Quality::Maj));
+        c.revoice_loop();
+        let before = c.state_bytes();
+
+        let bad: &[&[u8]] = &[
+            b"",
+            b"v=2\nbars=4\nper_bar=1\nbpm=90\nglide_ms=0\nstrum_ms=0\nsmooth=0\noctave=0\nslots=-,-,-,-",
+            b"v=1\nbars=7\nper_bar=1\nbpm=90\nglide_ms=0\nstrum_ms=0\nsmooth=0\noctave=0\nslots=-,-,-,-",
+            b"v=1\nbars=4\nper_bar=3\nbpm=90\nglide_ms=0\nstrum_ms=0\nsmooth=0\noctave=0\nslots=-,-,-,-",
+            b"v=1\nbars=4\nper_bar=1\nbpm=90\nglide_ms=0\nstrum_ms=0\nsmooth=0\noctave=0\nslots=-,-,-",
+            b"v=1\nbars=4\nper_bar=1\nbpm=90\nglide_ms=0\nstrum_ms=0\nsmooth=0\noctave=0\nslots=-,-,-,300:0",
+            b"v=1\nbars=4\nper_bar=1\nbpm=90\nglide_ms=0\nstrum_ms=0\nsmooth=0\noctave=0\nslots=-,-,-,0:24",
+            b"v=1\nbars=4\nper_bar=1\nbpm=90\nglide_ms=0\nstrum_ms=0\nsmooth=0\noctave=0\nslots=-,-,-,x",
+            b"v=1\nbars=4\nper_bar=1\nbpm=90\nglide_ms=0\nstrum_ms=0\nsmooth=2\noctave=0\nslots=-,-,-,-",
+            b"v=1\nbars=4\nper_bar=1\nbpm=90\nglide_ms=0\nstrum_ms=0\nsmooth=0\noctave=0\nslots=-,-,-,-\nfrobnicate=1",
+            b"v=1\nbars4\nper_bar=1\nbpm=90\nglide_ms=0\nstrum_ms=0\nsmooth=0\noctave=0\nslots=-,-,-,-",
+            b"v=1\n\xff",
+        ];
+        for (i, b) in bad.iter().enumerate() {
+            assert!(!c.restore_state(b), "case {i} accepted");
+            assert_eq!(c.state_bytes(), before, "case {i} changed the controller");
+        }
+    }
+
+    #[test]
+    fn export_midi_then_import_restores_the_exact_loop() {
+        let mut c = Controller::new(48_000.0);
+        c.set_mode(Mode::Loop);
+        c.lp.bars = 8;
+        c.lp.per_bar = 2;
+        c.lp.slots = vec![
+            Slot::Chord(Chord::new(2, Quality::Min9)),
+            Slot::Chord(Chord::new(7, Quality::Dom13)),
+            Slot::Silent,
+            Slot::Chord(Chord::new(9, Quality::Maj7)),
+            Slot::Empty,
+            Slot::Chord(Chord::new(4, Quality::Dim7)),
+            Slot::Empty,
+            Slot::Chord(Chord::new(11, Quality::Sus4)),
+            Slot::Silent,
+            Slot::Empty,
+            Slot::Empty,
+            Slot::Empty,
+            Slot::Empty,
+            Slot::Empty,
+            Slot::Empty,
+            Slot::Empty,
+        ];
+        c.clock.bpm = 96.0;
+        c.glide_ms = 240.0;
+        c.strum_ms = 30.0;
+        c.leader.smooth = true;
+        c.leader.octave = 1;
+        c.revoice_loop();
+
+        let bytes = c.export_midi();
+
+        let mut c2 = Controller::new(48_000.0);
+        c2.import_midi(&bytes).expect("import");
+        assert_eq!(c2.mode, Mode::Loop);
+        assert_eq!(c2.lp.bars, c.lp.bars);
+        assert_eq!(c2.lp.per_bar, c.lp.per_bar);
+        assert_eq!(c2.lp.slots, c.lp.slots);
+        assert_eq!(c2.clock.bpm, c.clock.bpm);
+        assert_eq!(c2.glide_ms, c.glide_ms);
+        assert_eq!(c2.strum_ms, c.strum_ms);
+        assert_eq!(c2.leader.smooth, c.leader.smooth);
+        assert_eq!(c2.leader.octave, c.leader.octave);
+        for i in 0..c.lp.slots.len() {
+            assert_eq!(c2.loop_voicing(i), c.loop_voicing(i), "voicing {i}");
+        }
+    }
+
+    #[test]
+    fn foreign_midi_imports_as_chords() {
+        // C major (C4 E4 G4) for one half bar, then G7 (G3 B3 D4 F4) for the next, at PPQ 480.
+        let events: Vec<(u32, Event)> = vec![
+            (0, Event::NoteOn { ch: 0, note: 60, vel: 100 }),
+            (0, Event::NoteOn { ch: 0, note: 64, vel: 100 }),
+            (0, Event::NoteOn { ch: 0, note: 67, vel: 100 }),
+            (960, Event::NoteOff { ch: 0, note: 60, vel: 0 }),
+            (960, Event::NoteOff { ch: 0, note: 64, vel: 0 }),
+            (960, Event::NoteOff { ch: 0, note: 67, vel: 0 }),
+            (960, Event::NoteOn { ch: 0, note: 55, vel: 100 }),
+            (960, Event::NoteOn { ch: 0, note: 59, vel: 100 }),
+            (960, Event::NoteOn { ch: 0, note: 62, vel: 100 }),
+            (960, Event::NoteOn { ch: 0, note: 65, vel: 100 }),
+            (1920, Event::NoteOff { ch: 0, note: 55, vel: 0 }),
+            (1920, Event::NoteOff { ch: 0, note: 59, vel: 0 }),
+            (1920, Event::NoteOff { ch: 0, note: 62, vel: 0 }),
+            (1920, Event::NoteOff { ch: 0, note: 65, vel: 0 }),
+        ];
+        let smf = Smf { ppq: 480, tracks: vec![Track { events }] };
+
+        let mut c = Controller::new(48_000.0);
+        c.import_midi(&smf.to_bytes()).expect("import");
+        assert_eq!(c.mode, Mode::Loop);
+        assert_eq!(c.lp.bars, 4, "smallest loop that fits two half bars");
+        assert_eq!(c.lp.per_bar, 2);
+        assert_eq!(c.lp.slots.len(), 8);
+        assert_eq!(c.lp.slots[0], Slot::Chord(Chord::new(0, Quality::Maj)), "C major");
+        assert_eq!(c.lp.slots[1], Slot::Chord(Chord::new(7, Quality::Dom7)), "G7");
+        for i in 2..8 {
+            assert_eq!(c.lp.slots[i], Slot::Silent, "unfilled slot {i}");
+        }
+    }
+
+    #[test]
+    fn render_wav_is_one_pass_plus_tail_and_non_silent() {
+        let mut c = Controller::new(8_000.0);
+        c.clock.bpm = 120.0; // 4000 samples per beat
+        c.set_mode(Mode::Loop);
+        c.lp.slots[0] = Slot::Chord(Chord::new(2, Quality::Min9));
+        c.lp.slots[1] = Slot::Chord(Chord::new(7, Quality::Maj));
+        c.lp.slots[2] = Slot::Chord(Chord::new(0, Quality::Maj7));
+        c.lp.slots[3] = Slot::Silent;
+        c.revoice_loop();
+
+        let buf = c.render_wav(8_000);
+        // 4 slots x 4 beats x 4000 samples/beat = 64000, plus a 1 s (8000) tail.
+        assert_eq!(buf.len(), 44 + 6 * (64_000 + 8_000));
+        assert!(buf[44..].iter().any(|&b| b != 0), "non-silent render");
     }
 }
