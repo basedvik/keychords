@@ -151,6 +151,18 @@ impl Controller {
         }
     }
 
+    /// Apply a vibe: patch, glide, strum, octave and reverb at once. Returns the commands for
+    /// the engine in this order: Patch, Glide, Reverb. Octave changes re-voice the loop.
+    pub fn apply_vibe(&mut self, v: &crate::vibes::Vibe) -> Vec<Command> {
+        todo!()
+    }
+
+    /// Play `chord` exactly as if its root letter and chord key had been pressed (live: voiced
+    /// and sent now; loop: written into the slot under the cursor). Sets `root` and `quality`.
+    pub fn play_chord(&mut self, chord: Chord, now: u64) -> Vec<Command> {
+        todo!()
+    }
+
     fn chord(&mut self, chord: Chord, now: u64) -> Vec<Command> {
         match self.mode {
             Mode::Live => {
@@ -473,6 +485,47 @@ impl Controller {
         }
 
         crate::wav::wav_24bit(&left, &right, sample_rate)
+    }
+}
+
+#[cfg(test)]
+mod vibe_tests {
+    use super::*;
+    use crate::vibes::vibes;
+
+    #[test]
+    fn apply_vibe_sets_everything_and_sends_three_commands() {
+        let mut c = Controller::new(48_000.0);
+        let v = vibes()[3]; // Glass bells: Bells, 200 ms, 60 ms, 0.5, octave +1
+        let cmds = c.apply_vibe(&v);
+        assert_eq!(c.patch, synth::Patch::Bells);
+        assert_eq!((c.glide_ms, c.strum_ms, c.leader.octave), (200.0, 60.0, 1));
+        assert_eq!(cmds, vec![
+            Command::Patch(synth::Patch::Bells),
+            Command::Glide { glide_ms: 200.0, strum_ms: 60.0 },
+            Command::Reverb(0.5),
+        ]);
+    }
+
+    #[test]
+    fn play_chord_live_matches_two_key_presses() {
+        let mut keys = Controller::new(48_000.0);
+        keys.key(KeyInput { character: Some('d'), phys: keymap::Phys::Letter, shift: false }, 0);
+        let by_keys = keys.key(KeyInput { character: Some(','), phys: keymap::Phys::Comma, shift: false }, 0);
+        let mut direct = Controller::new(48_000.0);
+        let by_call = direct.play_chord(Chord::new(2, chords::Quality::Min9), 0);
+        assert_eq!(by_keys, by_call);
+        assert_eq!(direct.current(), keys.current());
+        assert_eq!((direct.root, direct.quality), (Some(2), Some(chords::Quality::Min9)));
+    }
+
+    #[test]
+    fn play_chord_in_loop_mode_writes_the_slot() {
+        let mut c = Controller::new(48_000.0);
+        c.set_mode(Mode::Loop);
+        assert!(c.play_chord(Chord::new(7, chords::Quality::Dom13), 0).is_empty());
+        assert_eq!(c.lp.slots[0], Slot::Chord(Chord::new(7, chords::Quality::Dom13)));
+        assert_eq!(c.cursor, 1);
     }
 }
 
