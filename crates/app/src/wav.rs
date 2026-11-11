@@ -58,113 +58,69 @@ pub fn wav_24bit(left: &[f32], right: &[f32], sample_rate: u32) -> Vec<u8> {
 mod tests {
     use super::*;
 
-    fn parse_header(buf: &[u8]) -> (u32, u16, u16, u32, u16, u32) {
+    fn u16_at(b: &[u8], i: usize) -> u16 {
+        u16::from_le_bytes([b[i], b[i + 1]])
+    }
+    fn u32_at(b: &[u8], i: usize) -> u32 {
+        u32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]])
+    }
+
+    /// The three bytes of sample `k`, channel `c` (0 = left, 1 = right): the header is
+    /// 44 bytes, each frame is 6 bytes, left first.
+    fn sample_bytes(buf: &[u8], k: usize, c: usize) -> [u8; 3] {
+        let i = 44 + 6 * k + 3 * c;
+        [buf[i], buf[i + 1], buf[i + 2]]
+    }
+
+    #[test]
+    fn header_is_44_bytes_with_spec_fields() {
+        let n = 5;
+        let buf = wav_24bit(&vec![0.0; n], &vec![0.0; n], 48_000);
         assert_eq!(&buf[0..4], b"RIFF");
-        let riff_size = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
+        assert_eq!(u32_at(&buf, 4), 36 + 6 * n as u32, "RIFF size");
         assert_eq!(&buf[8..12], b"WAVE");
         assert_eq!(&buf[12..16], b"fmt ");
-        let _fmt_size = u32::from_le_bytes([buf[16], buf[17], buf[18], buf[19]]);
-        let fmt = u16::from_le_bytes([buf[20], buf[21]]);
-        let channels = u16::from_le_bytes([buf[22], buf[23]]);
-        let sr = u32::from_le_bytes([buf[24], buf[25], buf[26], buf[27]]);
-        let _byte_rate = u32::from_le_bytes([buf[28], buf[29], buf[30], buf[31]]);
-        let _block_align = u16::from_le_bytes([buf[32], buf[33]]);
-        let bits = u16::from_le_bytes([buf[34], buf[35]]);
-        let data_off = 36;
-        let data_tag = &buf[data_off..data_off + 4];
-        assert_eq!(data_tag, b"data");
-        let data_size = u32::from_le_bytes([
-            buf[data_off + 4], buf[data_off + 5], buf[data_off + 6], buf[data_off + 7],
-        ]);
-        (riff_size, fmt, channels, sr, bits, data_size)
+        assert_eq!(u32_at(&buf, 16), 16, "fmt size");
+        assert_eq!(u16_at(&buf, 20), 1, "PCM");
+        assert_eq!(u16_at(&buf, 22), 2, "channels");
+        assert_eq!(u32_at(&buf, 24), 48_000, "sample rate");
+        assert_eq!(u32_at(&buf, 28), 48_000 * 6, "byte rate");
+        assert_eq!(u16_at(&buf, 32), 6, "block align");
+        assert_eq!(u16_at(&buf, 34), 24, "bits per sample");
+        assert_eq!(&buf[36..40], b"data");
+        assert_eq!(u32_at(&buf, 40), 6 * n as u32, "data size");
+        assert_eq!(buf.len(), 44 + 6 * n);
     }
 
+    /// Expected values, worked out by hand: the three bytes are the little-endian low 24
+    /// bits of `round(clamp(x) * 8_388_607)`.
+    /// +1.0  ->  8388607 = 0x007FFFFF -> FF FF 7F
+    /// +2.0  ->  clamps to +1.0       -> FF FF 7F
+    ///  0.5  ->  round(4194303.5) = 4194304 = 0x00400000 -> 00 00 40
+    ///  0.0  ->  0 -> 00 00 00
+    /// -1.0  -> -8388607 = 0xFF800001 (two's complement) -> 01 00 80
+    /// -3.5  ->  clamps to -1.0       -> 01 00 80
     #[test]
-    fn wav_header_fields_are_correct() {
-        let buf = wav_24bit(&[0.0], &[0.0], 48000);
-        let (riff_size, fmt, channels, sr, bits, data_size) = parse_header(&buf);
-        assert_eq!(riff_size, 42); // 4 (WAVE) + 24 (fmt) + 8 + 6 (data) = 42
-        assert_eq!(fmt, 1);
-        assert_eq!(channels, 2);
-        assert_eq!(sr, 48000);
-        assert_eq!(bits, 24);
-        assert_eq!(data_size, 6); // 2 ch * 3 bytes * 1 sample
-    }
-
-    #[test]
-    fn wav_data_size_matches_samples() {
-        let n = 1000;
-        let buf = wav_24bit(&vec![0.0; n], &vec![0.0; n], 44100);
-        let (_, _, _, _, _, data_size) = parse_header(&buf);
-        assert_eq!(data_size, (n * 6) as u32);
-    }
-
-    #[test]
-    fn wav_24bit_samples_are_little_endian_3_bytes() {
-        let left = [1.0 / 8_388_607.0, 0.0, -1.0 / 8_388_607.0];
-        let right = [0.0; 3];
-        let buf = wav_24bit(&left, &right, 48000);
-
-        // Parse header to find data offset
-        let data_off = 40;
-        let data_size = u32::from_le_bytes([
-            buf[data_off + 4], buf[data_off + 5], buf[data_off + 6], buf[data_off + 7],
-        ]) as usize;
-        let data = &buf[data_off + 8..data_off + 8 + data_size];
-
-        // Sample 0: left = 1.0/SCALE = 1, right = 0
-        // Left: 01 00 00 (LE 24-bit for value 1)
-        assert_eq!(&data[0..3], &[0x01, 0x00, 0x00], "left sample 0");
-        assert_eq!(&data[3..6], &[0x00, 0x00, 0x00], "right sample 0");
-
-        // Sample 1: both 0
-        assert_eq!(&data[6..9], &[0x00, 0x00, 0x00], "left sample 1");
-        assert_eq!(&data[9..12], &[0x00, 0x00, 0x00], "right sample 1");
-
-        // Sample 2: left = -1/SCALE = -1
-        // -1 in 24-bit two's complement LE: FF FF FF
-        assert_eq!(&data[12..15], &[0xFF, 0xFF, 0xFF], "left sample 2");
-        assert_eq!(&data[15..18], &[0x00, 0x00, 0x00], "right sample 2");
-    }
-
-    #[test]
-    fn wav_clamps_values_above_1() {
-        let left = [2.0, -3.5];
-        let right = [0.0; 2];
-        let buf = wav_24bit(&left, &right, 48000);
-
-        let data_off = 40;
-        let data = &buf[data_off + 8..];
-
-        // 2.0 clamped to 1.0 => SCALE = 8388607
-        assert_eq!(&data[0..3], &[0x7F, 0xFF, 0x7F], "clamped +2.0");
-        assert_eq!(&data[3..6], &[0x00, 0x00, 0x00], "right 0");
-
-        // -3.5 clamped to -1.0 => -8388607 = 0x800401 in 24-bit two's complement
-        // In 24-bit two's complement: 0x800401
-        // LE: 01 04 80
-        assert_eq!(&data[6..9], &[0x01, 0x04, 0x80], "clamped -3.5");
-        assert_eq!(&data[9..12], &[0x00, 0x00, 0x00], "right 0");
-    }
-
-    #[test]
-    fn wav_zero_input_produces_silent_data() {
-        let n = 480;
-        let buf = wav_24bit(&vec![0.0; n], &vec![0.0; n], 48000);
-        let data_off = 40;
-        let data_size = u32::from_le_bytes([
-            buf[data_off + 4], buf[data_off + 5], buf[data_off + 6], buf[data_off + 7],
-        ]) as usize;
-        for b in &buf[data_off + 8..data_off + 8 + data_size] {
-            assert_eq!(*b, 0, "all data bytes should be zero");
+    fn samples_are_little_endian_24bit_and_clamped() {
+        let left = [1.0f32, 2.0, 0.5, 0.0, -1.0, -3.5];
+        let right = [0.0f32; 6];
+        let buf = wav_24bit(&left, &right, 44_100);
+        assert_eq!(sample_bytes(&buf, 0, 0), [0xFF, 0xFF, 0x7F], "+1.0");
+        assert_eq!(sample_bytes(&buf, 1, 0), [0xFF, 0xFF, 0x7F], "+2.0 clamped");
+        assert_eq!(sample_bytes(&buf, 2, 0), [0x00, 0x00, 0x40], "0.5");
+        assert_eq!(sample_bytes(&buf, 3, 0), [0x00, 0x00, 0x00], "0.0");
+        assert_eq!(sample_bytes(&buf, 4, 0), [0x01, 0x00, 0x80], "-1.0");
+        assert_eq!(sample_bytes(&buf, 5, 0), [0x01, 0x00, 0x80], "-3.5 clamped");
+        for k in 0..6 {
+            assert_eq!(sample_bytes(&buf, k, 1), [0x00, 0x00, 0x00], "right {k}");
         }
     }
 
     #[test]
-    fn wav_file_length_is_correct() {
-        let n = 4800;
-        let buf = wav_24bit(&vec![0.0; n], &vec![0.0; n], 48000);
-        let expected = 44 + (n as u32 * 6) as usize;
-        assert_eq!(buf.len(), expected);
+    fn file_length_is_header_plus_six_bytes_per_frame() {
+        let n = 1000;
+        let buf = wav_24bit(&vec![0.0; n], &vec![0.0; n], 44_100);
+        assert_eq!(buf.len(), 44 + 6 * n);
+        assert!(buf[44..].iter().all(|&b| b == 0), "silence encodes as zero bytes");
     }
 }
