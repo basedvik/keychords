@@ -14,7 +14,7 @@
           "reasoning": false,
           "tool_call": true,
           "temperature": true,
-          "attachment": false,
+          "attachment": true,
           "limit": {
             "context": 262144,
             "output": 32768
