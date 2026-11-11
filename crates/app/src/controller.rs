@@ -173,7 +173,7 @@ impl Controller {
         let bpm = bpm.clamp(60.0, 180.0);
         if self.playing {
             let old_spb = self.clock.samples_per_beat();
-            let beat = (now - self.origin) as f64 / old_spb;
+            let beat = now.saturating_sub(self.origin) as f64 / old_spb;
             self.clock.bpm = bpm;
             let new_spb = self.clock.samples_per_beat();
             let offset = (beat * new_spb).round() as i64;
@@ -546,6 +546,15 @@ mod tempo_tests {
         // 3 more beats at the new tempo reach beat 8: slot 2.
         assert_eq!(c.playhead(now + 1500), Some(2));
         assert_eq!(c.playhead(now + 1499), Some(1));
+    }
+
+    #[test]
+    fn tempo_change_in_the_instant_after_play_does_not_underflow() {
+        let mut c = Controller::new(1000.0);
+        c.set_mode(Mode::Loop);
+        c.key(KeyInput { character: Some(' '), phys: keymap::Phys::Space, shift: false }, 1000);
+        c.set_bpm(150.0, 1000); // origin is 0.1 beat after now
+        assert_eq!(c.clock.bpm, 150.0);
     }
 
     #[test]
