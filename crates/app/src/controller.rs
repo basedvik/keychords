@@ -173,7 +173,27 @@ impl Controller {
     /// root letter or its chord key releases the chord (returns `[Command::Release]` and resets
     /// the voice leader). Otherwise nothing happens.
     pub fn key_up(&mut self, input: KeyInput, now: u64) -> Vec<Command> {
-        todo!()
+        if self.ring || self.mode != Mode::Live {
+            return Vec::new();
+        }
+        let Some(action) = self.keymap.resolve(input) else { return Vec::new() };
+        if let KeyAction::Root { letter, .. } = action {
+            if let Some(current) = self.current() {
+                if letter.pitch_class() as u8 == current.0.root as u8 {
+                    self.leader.reset();
+                    return vec![Command::Release];
+                }
+            }
+        }
+        if let KeyAction::Quality(q) = action {
+            if let Some(current) = self.current() {
+                if q == current.0.quality {
+                    self.leader.reset();
+                    return vec![Command::Release];
+                }
+            }
+        }
+        Vec::new()
     }
 
     /// Change the loop tempo, clamped to 60..=180 BPM. While the loop plays, the current beat
