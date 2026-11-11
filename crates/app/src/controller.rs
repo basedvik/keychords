@@ -170,7 +170,18 @@ impl Controller {
     /// position is kept: `origin` moves so that `now` maps to the same beat as before, and
     /// boundaries not yet scheduled are re-timed from there (`scheduled_to` becomes `now`).
     pub fn set_bpm(&mut self, bpm: f64, now: u64) {
-        todo!()
+        let bpm = bpm.clamp(60.0, 180.0);
+        if self.playing {
+            let old_spb = self.clock.samples_per_beat();
+            let beat = (now - self.origin) as f64 / old_spb;
+            self.clock.bpm = bpm;
+            let new_spb = self.clock.samples_per_beat();
+            let offset = (beat * new_spb).round() as i64;
+            self.origin = now.saturating_sub(offset as u64);
+            self.scheduled_to = now;
+        } else {
+            self.clock.bpm = bpm;
+        }
     }
 
     /// Play `chord` exactly as if its root letter and chord key had been pressed (live: voiced
