@@ -172,14 +172,14 @@ impl Controller {
     /// A key was released. With `ring` off in live mode, letting go of the current chord's
     /// root letter or its chord key releases the chord (returns `[Command::Release]` and resets
     /// the voice leader). Otherwise nothing happens.
-    pub fn key_up(&mut self, input: KeyInput, now: u64) -> Vec<Command> {
+    pub fn key_up(&mut self, input: KeyInput, _now: u64) -> Vec<Command> {
         if self.ring || self.mode != Mode::Live {
             return Vec::new();
         }
         let Some(action) = self.keymap.resolve(input) else { return Vec::new() };
         if let KeyAction::Root { letter, .. } = action {
             if let Some(current) = self.current() {
-                if letter.pitch_class() as u8 == current.0.root as u8 {
+                if letter.pitch_class() == current.0.root {
                     self.leader.reset();
                     return vec![Command::Release];
                 }
