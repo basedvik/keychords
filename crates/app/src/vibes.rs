@@ -22,7 +22,14 @@ pub struct Vibe {
 /// | Choir cloud | Choir | 420 | 0 | 0.70 | 0 |
 /// | String swell | StringSection | 380 | 15 | 0.45 | 0 |
 pub fn vibes() -> [Vibe; 6] {
-    todo!()
+    [
+        Vibe { name: "Neo-soul keys", patch: Patch::EPiano, glide_ms: 160.0, strum_ms: 25.0, reverb: 0.35, octave: 0 },
+        Vibe { name: "Night drive", patch: Patch::GlidePad, glide_ms: 320.0, strum_ms: 0.0, reverb: 0.55, octave: 0 },
+        Vibe { name: "Lo-fi pluck", patch: Patch::Pluck, glide_ms: 90.0, strum_ms: 40.0, reverb: 0.30, octave: 0 },
+        Vibe { name: "Glass bells", patch: Patch::Bells, glide_ms: 200.0, strum_ms: 60.0, reverb: 0.50, octave: 1 },
+        Vibe { name: "Choir cloud", patch: Patch::Choir, glide_ms: 420.0, strum_ms: 0.0, reverb: 0.70, octave: 0 },
+        Vibe { name: "String swell", patch: Patch::StringSection, glide_ms: 380.0, strum_ms: 15.0, reverb: 0.45, octave: 0 },
+    ]
 }
 
 #[cfg(test)]
