@@ -166,6 +166,13 @@ impl Controller {
         ]
     }
 
+    /// Change the loop tempo, clamped to 60..=180 BPM. While the loop plays, the current beat
+    /// position is kept: `origin` moves so that `now` maps to the same beat as before, and
+    /// boundaries not yet scheduled are re-timed from there (`scheduled_to` becomes `now`).
+    pub fn set_bpm(&mut self, bpm: f64, now: u64) {
+        todo!()
+    }
+
     /// Play `chord` exactly as if its root letter and chord key had been pressed (live: voiced
     /// and sent now; loop: written into the slot under the cursor). Sets `root` and `quality`.
     pub fn play_chord(&mut self, chord: Chord, now: u64) -> Vec<Command> {
@@ -496,6 +503,46 @@ impl Controller {
         }
 
         crate::wav::wav_24bit(&left, &right, sample_rate)
+    }
+}
+
+#[cfg(test)]
+mod tempo_tests {
+    use super::*;
+
+    #[test]
+    fn clamps_to_range() {
+        let mut c = Controller::new(48_000.0);
+        c.set_bpm(30.0, 0);
+        assert_eq!(c.clock.bpm, 60.0);
+        c.set_bpm(400.0, 0);
+        assert_eq!(c.clock.bpm, 180.0);
+        c.set_bpm(120.0, 0);
+        assert_eq!(c.clock.bpm, 120.0);
+    }
+
+    #[test]
+    fn keeps_the_beat_position_while_playing() {
+        let mut c = Controller::new(1000.0);
+        c.clock.bpm = 60.0; // 1000 samples per beat
+        c.set_mode(Mode::Loop);
+        c.key(KeyInput { character: Some(' '), phys: keymap::Phys::Space, shift: false }, 0);
+        let origin = 100; // 0.1 beat after now = 0
+        let now = origin + 5000; // 5 beats in: slot 1 of a 4-beat-slot loop
+        assert_eq!(c.playhead(now), Some(1));
+        c.set_bpm(120.0, now); // 500 samples per beat; origin becomes 5100 - 5 * 500 = 2600
+        assert_eq!(c.playhead(now), Some(1), "same slot right after the change");
+        // 3 more beats at the new tempo reach beat 8: slot 2.
+        assert_eq!(c.playhead(now + 1500), Some(2));
+        assert_eq!(c.playhead(now + 1499), Some(1));
+    }
+
+    #[test]
+    fn stopped_loop_just_changes_tempo() {
+        let mut c = Controller::new(48_000.0);
+        c.set_bpm(100.0, 12_345);
+        assert_eq!(c.clock.bpm, 100.0);
+        assert_eq!(c.playhead(12_345), None);
     }
 }
 
