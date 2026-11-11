@@ -154,13 +154,24 @@ impl Controller {
     /// Apply a vibe: patch, glide, strum, octave and reverb at once. Returns the commands for
     /// the engine in this order: Patch, Glide, Reverb. Octave changes re-voice the loop.
     pub fn apply_vibe(&mut self, v: &crate::vibes::Vibe) -> Vec<Command> {
-        todo!()
+        self.patch = v.patch;
+        self.glide_ms = v.glide_ms;
+        self.strum_ms = v.strum_ms;
+        self.leader.octave = v.octave;
+        self.revoice_loop();
+        vec![
+            Command::Patch(v.patch),
+            self.glide(),
+            Command::Reverb(v.reverb),
+        ]
     }
 
     /// Play `chord` exactly as if its root letter and chord key had been pressed (live: voiced
     /// and sent now; loop: written into the slot under the cursor). Sets `root` and `quality`.
     pub fn play_chord(&mut self, chord: Chord, now: u64) -> Vec<Command> {
-        todo!()
+        self.root = Some(chord.root);
+        self.quality = Some(chord.quality);
+        self.chord(chord, now)
     }
 
     fn chord(&mut self, chord: Chord, now: u64) -> Vec<Command> {
