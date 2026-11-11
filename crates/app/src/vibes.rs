@@ -1,0 +1,54 @@
+//! Vibes: one click sets sound, glide, strum, reverb and octave together.
+
+use synth::Patch;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Vibe {
+    pub name: &'static str,
+    pub patch: Patch,
+    pub glide_ms: f32,
+    pub strum_ms: f32,
+    /// 0..=1.
+    pub reverb: f32,
+    pub octave: i8,
+}
+
+/// In this order (keys 1–6 select them):
+/// | name | patch | glide | strum | reverb | octave |
+/// | Neo-soul keys | EPiano | 160 | 25 | 0.35 | 0 |
+/// | Night drive | GlidePad | 320 | 0 | 0.55 | 0 |
+/// | Lo-fi pluck | Pluck | 90 | 40 | 0.30 | 0 |
+/// | Glass bells | Bells | 200 | 60 | 0.50 | 1 |
+/// | Choir cloud | Choir | 420 | 0 | 0.70 | 0 |
+/// | String swell | StringSection | 380 | 15 | 0.45 | 0 |
+pub fn vibes() -> [Vibe; 6] {
+    todo!()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn six_vibes_in_order() {
+        let names: Vec<_> = vibes().iter().map(|v| v.name).collect();
+        assert_eq!(names, ["Neo-soul keys", "Night drive", "Lo-fi pluck", "Glass bells", "Choir cloud", "String swell"]);
+        let patches: Vec<_> = vibes().iter().map(|v| v.patch).collect();
+        assert_eq!(patches, [Patch::EPiano, Patch::GlidePad, Patch::Pluck, Patch::Bells, Patch::Choir, Patch::StringSection]);
+    }
+
+    #[test]
+    fn values_match_the_table() {
+        let rows: Vec<_> = vibes().iter().map(|v| (v.glide_ms, v.strum_ms, v.reverb, v.octave)).collect();
+        assert_eq!(rows, [(160.0, 25.0, 0.35, 0), (320.0, 0.0, 0.55, 0), (90.0, 40.0, 0.30, 0),
+            (200.0, 60.0, 0.50, 1), (420.0, 0.0, 0.70, 0), (380.0, 15.0, 0.45, 0)]);
+    }
+
+    #[test]
+    fn values_are_in_range() {
+        for v in vibes() {
+            assert!((0.0..=800.0).contains(&v.glide_ms) && (0.0..=160.0).contains(&v.strum_ms));
+            assert!((0.0..=1.0).contains(&v.reverb) && (-2..=2).contains(&v.octave));
+        }
+    }
+}

@@ -3,6 +3,8 @@
 mod audio;
 mod controller;
 mod reverb;
+mod theme;
+mod vibes;
 mod engine;
 mod wav;
 
