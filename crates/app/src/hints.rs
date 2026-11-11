@@ -1,7 +1,7 @@
 //! "Try next": a few next chords that voice-lead smoothly from the current one and sound lush.
 
-use chords::{Chord, Quality};
-use voicing::Voicing;
+use chords::{Chord, PitchClass, Quality};
+use voicing::{Voicing, VoiceLeader, motion};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Suggestion {
@@ -22,7 +22,30 @@ pub struct Suggestion {
 ///    is `min(d, 12 - d)` with `d = (fifths_index(root) + 12 - fifths_index(current root)) % 12`
 ///    (`crate::theme::fifths_index`). Take the first `n`.
 pub fn suggest(current: &(Chord, Voicing), octave: i8, smooth: bool, n: usize) -> Vec<Suggestion> {
-    todo!()
+    let (cur_chord, cur_voicing) = current;
+    let cur_root = cur_chord.root;
+    let mut out: Vec<(i32, u8, usize, Suggestion)> = Vec::new();
+    for root in 0..12 {
+        let root = root as PitchClass;
+        for q in Quality::ALL {
+            let chord = Chord::new(root, q);
+            if chord == *cur_chord {
+                continue;
+            }
+            let mut vl = VoiceLeader::seeded(cur_voicing.clone());
+            vl.octave = octave;
+            vl.smooth = smooth;
+            let v = vl.next(chord);
+            let m = motion(&cur_voicing.upper, &v.upper);
+            let lush = if q.intervals().len() >= 4 { 2 } else { 0 };
+            let score = m as i32 - lush;
+            let d = (crate::theme::fifths_index(root) + 12 - crate::theme::fifths_index(cur_root)) % 12;
+            let fifths_dist = d.min(12 - d);
+            out.push((score, fifths_dist, q.index(), Suggestion { chord, motion: m }));
+        }
+    }
+    out.sort_by_key(|a| (a.0, a.1, a.2));
+    out.into_iter().take(n).map(|(_, _, _, s)| s).collect()
 }
 
 #[cfg(test)]
