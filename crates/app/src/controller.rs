@@ -13,7 +13,7 @@ use voicing::{voice_cycle, VoiceLeader, Voicing};
 
 use crate::engine::{Command, Engine, Notes};
 
-const HISTORY: usize = 8;
+const HISTORY: usize = 16;
 /// Extra lookahead beyond the glide time, covering UI frame jitter.
 const LOOKAHEAD_MS: f64 = 150.0;
 
@@ -45,6 +45,8 @@ pub struct Controller {
     pub strum_ms: f32,
     /// Most recent chords played live, oldest first, for the voice-line view.
     pub history: Vec<(Chord, Voicing)>,
+    /// When each `history` entry was played, in seconds of the engine clock.
+    pub history_at: Vec<f64>,
     pub lp: Loop,
     pub cursor: usize,
     pub playing: bool,
@@ -71,6 +73,7 @@ impl Controller {
             glide_ms: 220.0,
             strum_ms: 0.0,
             history: Vec::new(),
+            history_at: Vec::new(),
             lp: Loop::new(4, 1),
             cursor: 0,
             playing: false,
@@ -148,14 +151,16 @@ impl Controller {
         }
     }
 
-    fn chord(&mut self, chord: Chord, _now: u64) -> Vec<Command> {
+    fn chord(&mut self, chord: Chord, now: u64) -> Vec<Command> {
         match self.mode {
             Mode::Live => {
                 let v = self.leader.next(chord);
                 let cmd = Command::Play(notes_of(&v));
                 self.history.push((chord, v));
+                self.history_at.push(now as f64 / self.clock.sample_rate);
                 if self.history.len() > HISTORY {
                     self.history.remove(0);
+                    self.history_at.remove(0);
                 }
                 vec![cmd]
             }

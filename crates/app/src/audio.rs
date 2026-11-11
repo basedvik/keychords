@@ -1,7 +1,7 @@
 //! Device glue: a cpal output stream running the `Engine`, and a MIDI thread that forwards
 //! what the engine emits to a virtual port named "keychords" (loopMIDI on Windows).
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -17,6 +17,8 @@ pub struct Audio {
     pub commands: Producer<Command>,
     /// The engine's sample clock, published once per buffer.
     pub now: Arc<AtomicU64>,
+    /// Each voice's current pitch as f32 bits (NaN when silent), published once per buffer.
+    pub live: Arc<[AtomicU32; glide::MAX_VOICES]>,
     pub sample_rate: f64,
     /// Name of the MIDI port in use, if one opened.
     pub midi_port: Option<String>,
@@ -37,6 +39,9 @@ pub fn start() -> Result<Audio, String> {
     let (mut midi_tx, midi_rx) = RingBuffer::<Msg>::new(4096);
     let now = Arc::new(AtomicU64::new(0));
     let clock = now.clone();
+    let live: Arc<[AtomicU32; glide::MAX_VOICES]> =
+        Arc::new(std::array::from_fn(|_| AtomicU32::new(f32::NAN.to_bits())));
+    let live_out = live.clone();
 
     let mut engine = Engine::new(sample_rate as f32);
     let (mut left, mut right) = (vec![0.0f32; 8192], vec![0.0f32; 8192]);
@@ -64,6 +69,9 @@ pub fn start() -> Result<Audio, String> {
                     let _ = midi_tx.push(m);
                 }
                 clock.store(engine.now(), Ordering::Relaxed);
+                for (slot, p) in live_out.iter().zip(engine.voice_pitches()) {
+                    slot.store(p.unwrap_or(f32::NAN).to_bits(), Ordering::Relaxed);
+                }
             },
             |e| eprintln!("audio stream error: {e}"),
             None,
@@ -72,7 +80,7 @@ pub fn start() -> Result<Audio, String> {
     stream.play().map_err(|e| e.to_string())?;
 
     let midi_port = start_midi(midi_rx);
-    Ok(Audio { _stream: stream, commands, now, sample_rate, midi_port })
+    Ok(Audio { _stream: stream, commands, now, live, sample_rate, midi_port })
 }
 
 fn start_midi(mut rx: Consumer<Msg>) -> Option<String> {

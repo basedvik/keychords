@@ -87,6 +87,11 @@ impl Engine {
         }
     }
 
+    /// Each voice's pitch right now (fractional MIDI), `None` when silent.
+    pub fn voice_pitches(&self) -> [Option<f32>; MAX_VOICES] {
+        std::array::from_fn(|v| self.glider.pitch(v, self.now))
+    }
+
     /// Absolute sample position of the next sample `process` will render.
     pub fn now(&self) -> u64 {
         self.now
