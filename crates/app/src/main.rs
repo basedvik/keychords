@@ -2,6 +2,7 @@
 
 mod audio;
 mod controller;
+mod reverb;
 mod engine;
 mod wav;
 
@@ -23,6 +24,9 @@ struct State {
     midi: MidiMode,
     own_sound: bool,
     volume_db: f32,
+    reverb: f32,
+    /// Output level for the meter, 0..=1, with a falling decay.
+    meter: f32,
 }
 
 impl State {
@@ -48,7 +52,9 @@ impl State {
             status,
             midi: MidiMode::Off,
             own_sound: true,
-            volume_db: -6.0,
+            volume_db: 0.0,
+            reverb: 0.3,
+            meter: 0.0,
         };
         let glide = s.ctl.glide();
         s.send(vec![glide]);
@@ -148,6 +154,10 @@ fn poll(s: &mut State, _: f64, _: &mut Tx) -> bool {
     let now = s.now();
     let cmds = s.ctl.poll(now);
     s.send(cmds);
+    if let Some(a) = &s.audio {
+        let peak = f32::from_bits(a.peak.swap(0, Ordering::Relaxed));
+        s.meter = peak.max(s.meter * 0.88);
+    }
     s.ctl.playing || s.audio.is_some()
 }
 
@@ -190,7 +200,18 @@ fn header(s: &State) -> El {
         .child(button("Play live", live, |s: &mut State| { let c = s.ctl.set_mode(Mode::Live); s.send(c); }))
         .child(button("Loop", !live, |s: &mut State| { let c = s.ctl.set_mode(Mode::Loop); s.send(c); }))
         .child(el().grow(1.0))
+        .child(meter(s.meter))
         .child(text(s.status.clone()).font(type_::LABEL).color(t.text_secondary))
+}
+
+/// A horizontal output-level bar: green, then amber near full scale.
+fn meter(level: f32) -> El {
+    let t = tok::theme(true);
+    let w = 120.0;
+    let fill = (level.clamp(0.0, 1.0) * w).max(2.0);
+    let col = if level > 0.85 { c("#F6A04D") } else { c("#5FD38D") };
+    el().size(w, 8.0).radius(4.0).fill(t.control_track).clip_rounded(4.0)
+        .child(el().size(fill, 8.0).radius(4.0).fill(col))
 }
 
 fn chord_panel(s: &State) -> El {
@@ -421,6 +442,9 @@ fn controls(s: &State) -> El {
         .child(stepper(format!("Vol {:.0} dB", s.volume_db),
             |s| { s.volume_db = (s.volume_db - 3.0).max(-48.0); let v = s.volume_db; s.send(vec![Command::VolumeDb(v)]); },
             |s| { s.volume_db = (s.volume_db + 3.0).min(0.0); let v = s.volume_db; s.send(vec![Command::VolumeDb(v)]); }))
+        .child(stepper(format!("Reverb {:.0}%", s.reverb * 100.0),
+            |s| { s.reverb = (s.reverb - 0.1).max(0.0); let r = s.reverb; s.send(vec![Command::Reverb(r)]); },
+            |s| { s.reverb = (s.reverb + 0.1).min(1.0); let r = s.reverb; s.send(vec![Command::Reverb(r)]); }))
         .child(button("Smooth voice leading", s.ctl.leader.smooth, |s: &mut State| {
             s.ctl.leader.smooth = !s.ctl.leader.smooth;
         }))
@@ -462,7 +486,26 @@ fn demo(s: &mut State) {
     }
 }
 
+/// `--audio-test`: open the device exactly as the app does, play a chord, report what reached it.
+fn audio_test() {
+    match audio::start() {
+        Err(e) => println!("audio::start failed: {e}"),
+        Ok(mut a) => {
+            println!("device: {} | {} Hz | {} ch | midi: {:?}", a.device_name, a.sample_rate, a.channels, a.midi_port);
+            let _ = a.commands.push(Command::Play(engine::Notes::from_slice(&[50, 57, 65, 72, 76])));
+            for i in 0..8 {
+                std::thread::sleep(Duration::from_millis(250));
+                let peak = f32::from_bits(a.peak.swap(0, Ordering::Relaxed));
+                println!("t={:.2}s clock={} peak={peak:.4}", (i + 1) as f32 * 0.25, a.now.load(Ordering::Relaxed));
+            }
+        }
+    }
+}
+
 fn main() {
+    if std::env::args().any(|a| a == "--audio-test") {
+        return audio_test();
+    }
     rune::run(AppSpec::<State> {
         scenes: &[("demo", demo)],
         poll: Some(poll),

@@ -20,6 +20,10 @@ pub struct Audio {
     /// Each voice's current pitch as f32 bits (NaN when silent), published once per buffer.
     pub live: Arc<[AtomicU32; glide::MAX_VOICES]>,
     pub sample_rate: f64,
+    pub device_name: String,
+    pub channels: u16,
+    /// Peak absolute output sample since last read, as f32 bits.
+    pub peak: Arc<AtomicU32>,
     /// Name of the MIDI port in use, if one opened.
     pub midi_port: Option<String>,
 }
@@ -32,6 +36,7 @@ pub fn start() -> Result<Audio, String> {
         return Err(format!("unsupported sample format {:?}", supported.sample_format()));
     }
     let config: cpal::StreamConfig = supported.config();
+    let device_name = device.description().map(|d| d.name().to_string()).unwrap_or_else(|_| "unknown".into());
     let channels = config.channels as usize;
     let sample_rate = config.sample_rate as f64;
 
@@ -42,6 +47,8 @@ pub fn start() -> Result<Audio, String> {
     let live: Arc<[AtomicU32; glide::MAX_VOICES]> =
         Arc::new(std::array::from_fn(|_| AtomicU32::new(f32::NAN.to_bits())));
     let live_out = live.clone();
+    let peak = Arc::new(AtomicU32::new(0));
+    let peak_out = peak.clone();
 
     let mut engine = Engine::new(sample_rate as f32);
     let (mut left, mut right) = (vec![0.0f32; 8192], vec![0.0f32; 8192]);
@@ -65,6 +72,10 @@ pub fn start() -> Result<Audio, String> {
                         *s = if c % 2 == 0 { left[i] } else { right[i] };
                     }
                 }
+                let p = data.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+                if p > f32::from_bits(peak_out.load(Ordering::Relaxed)) {
+                    peak_out.store(p.to_bits(), Ordering::Relaxed);
+                }
                 for m in midi_buf.drain(..) {
                     let _ = midi_tx.push(m);
                 }
@@ -80,7 +91,7 @@ pub fn start() -> Result<Audio, String> {
     stream.play().map_err(|e| e.to_string())?;
 
     let midi_port = start_midi(midi_rx);
-    Ok(Audio { _stream: stream, commands, now, live, sample_rate, midi_port })
+    Ok(Audio { _stream: stream, commands, now, live, sample_rate, device_name, channels: channels as u16, peak, midi_port })
 }
 
 fn start_midi(mut rx: Consumer<Msg>) -> Option<String> {

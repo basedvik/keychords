@@ -374,7 +374,7 @@ impl Synth {
                         let s0 = saw(p0, dt);
                         let s1 = saw(p1, dt * 1.006);
                         let x = (s0 + s1) * 0.5;
-                        v.lp += (x - v.lp) * 0.08;
+                        v.lp += (x - v.lp) * 0.3;
                         sum += v.lp * env * VOICE_GAIN;
                     }
                     Patch::Saw => {
