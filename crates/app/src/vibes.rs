@@ -5,6 +5,8 @@ use synth::Patch;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Vibe {
     pub name: &'static str,
+    /// First-word name for the 68 pt key cap.
+    pub short: &'static str,
     pub patch: Patch,
     pub glide_ms: f32,
     pub strum_ms: f32,
@@ -13,7 +15,7 @@ pub struct Vibe {
     pub octave: i8,
 }
 
-/// In this order (keys 1–6 select them):
+/// In this order (the header pills select them):
 /// | name | patch | glide | strum | reverb | octave |
 /// | Neo-soul keys | EPiano | 160 | 25 | 0.35 | 0 |
 /// | Night drive | GlidePad | 320 | 0 | 0.55 | 0 |
@@ -23,12 +25,12 @@ pub struct Vibe {
 /// | String swell | StringSection | 380 | 15 | 0.45 | 0 |
 pub fn vibes() -> [Vibe; 6] {
     [
-        Vibe { name: "Neo-soul keys", patch: Patch::EPiano, glide_ms: 160.0, strum_ms: 25.0, reverb: 0.35, octave: 0 },
-        Vibe { name: "Night drive", patch: Patch::GlidePad, glide_ms: 320.0, strum_ms: 0.0, reverb: 0.55, octave: 0 },
-        Vibe { name: "Lo-fi pluck", patch: Patch::Pluck, glide_ms: 90.0, strum_ms: 40.0, reverb: 0.30, octave: 0 },
-        Vibe { name: "Glass bells", patch: Patch::Bells, glide_ms: 200.0, strum_ms: 60.0, reverb: 0.50, octave: 1 },
-        Vibe { name: "Choir cloud", patch: Patch::Choir, glide_ms: 420.0, strum_ms: 0.0, reverb: 0.70, octave: 0 },
-        Vibe { name: "String swell", patch: Patch::StringSection, glide_ms: 380.0, strum_ms: 15.0, reverb: 0.45, octave: 0 },
+        Vibe { name: "Neo-soul keys", short: "Neo-soul", patch: Patch::EPiano, glide_ms: 160.0, strum_ms: 25.0, reverb: 0.35, octave: 0 },
+        Vibe { name: "Night drive", short: "Night", patch: Patch::GlidePad, glide_ms: 320.0, strum_ms: 0.0, reverb: 0.55, octave: 0 },
+        Vibe { name: "Lo-fi pluck", short: "Lo-fi", patch: Patch::Pluck, glide_ms: 90.0, strum_ms: 40.0, reverb: 0.30, octave: 0 },
+        Vibe { name: "Glass bells", short: "Bells", patch: Patch::Bells, glide_ms: 200.0, strum_ms: 60.0, reverb: 0.50, octave: 1 },
+        Vibe { name: "Choir cloud", short: "Choir", patch: Patch::Choir, glide_ms: 420.0, strum_ms: 0.0, reverb: 0.70, octave: 0 },
+        Vibe { name: "String swell", short: "Strings", patch: Patch::StringSection, glide_ms: 380.0, strum_ms: 15.0, reverb: 0.45, octave: 0 },
     ]
 }
 
@@ -40,6 +42,8 @@ mod tests {
     fn six_vibes_in_order() {
         let names: Vec<_> = vibes().iter().map(|v| v.name).collect();
         assert_eq!(names, ["Neo-soul keys", "Night drive", "Lo-fi pluck", "Glass bells", "Choir cloud", "String swell"]);
+        let short: Vec<_> = vibes().iter().map(|v| v.short).collect();
+        assert_eq!(short, ["Neo-soul", "Night", "Lo-fi", "Bells", "Choir", "Strings"]);
         let patches: Vec<_> = vibes().iter().map(|v| v.patch).collect();
         assert_eq!(patches, [Patch::EPiano, Patch::GlidePad, Patch::Pluck, Patch::Bells, Patch::Choir, Patch::StringSection]);
     }

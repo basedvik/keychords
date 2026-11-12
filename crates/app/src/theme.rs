@@ -1,6 +1,8 @@
 //! Design tokens from design.md: the device palette, root hues around the circle of fifths,
 //! and chord-family tints.
 
+use std::sync::LazyLock;
+
 use chords::{PitchClass, Quality};
 use rune::Color;
 
@@ -10,6 +12,46 @@ pub const INK_SOFT: &str = "#6E6890";
 pub const CAP: &str = "#F8F7FC";
 pub const CAP_EDGE: &str = "#C9C4DC";
 pub const SCREEN: &str = "#1E1A38";
+pub const METER_LOW: &str = "#5FD38D";
+pub const METER_HOT: &str = "#F6A04D";
+
+static BODY_COLOR: LazyLock<Color> = LazyLock::new(|| parse(BODY));
+static INK_COLOR: LazyLock<Color> = LazyLock::new(|| parse(INK));
+static INK_SOFT_COLOR: LazyLock<Color> = LazyLock::new(|| parse(INK_SOFT));
+static CAP_COLOR: LazyLock<Color> = LazyLock::new(|| parse(CAP));
+static CAP_EDGE_COLOR: LazyLock<Color> = LazyLock::new(|| parse(CAP_EDGE));
+static SCREEN_COLOR: LazyLock<Color> = LazyLock::new(|| parse(SCREEN));
+static METER_LOW_COLOR: LazyLock<Color> = LazyLock::new(|| parse(METER_LOW));
+static METER_HOT_COLOR: LazyLock<Color> = LazyLock::new(|| parse(METER_HOT));
+
+fn parse(h: &str) -> Color {
+    rune::color::hex(h).expect("valid colour")
+}
+
+pub fn body() -> Color {
+    *BODY_COLOR
+}
+pub fn ink() -> Color {
+    *INK_COLOR
+}
+pub fn ink_soft() -> Color {
+    *INK_SOFT_COLOR
+}
+pub fn cap() -> Color {
+    *CAP_COLOR
+}
+pub fn cap_edge() -> Color {
+    *CAP_EDGE_COLOR
+}
+pub fn screen() -> Color {
+    *SCREEN_COLOR
+}
+pub fn meter_low() -> Color {
+    *METER_LOW_COLOR
+}
+pub fn meter_hot() -> Color {
+    *METER_HOT_COLOR
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Family {
@@ -24,9 +66,21 @@ pub fn fifths_index(pc: PitchClass) -> u8 {
     (pc * 7) % 12
 }
 
+/// The root hue in degrees, placed around the circle of fifths.
+pub fn root_hue(pc: PitchClass) -> f32 {
+    20.0 + 30.0 * fifths_index(pc % 12) as f32
+}
+
 /// `rune::oklch(0.72, 0.16, 20 + 30 * fifths_index(pc))`; `pc` is taken mod 12.
 pub fn root_color(pc: PitchClass) -> Color {
-    rune::oklch(0.72, 0.16, 20.0 + 30.0 * fifths_index(pc % 12) as f32)
+    rune::oklch(0.72, 0.16, root_hue(pc))
+}
+
+/// A screen ribbon for voice `v` of `voices`: the bass keeps the root's full saturation and
+/// the upper voices step toward a lighter tint of the same hue, so every ribbon stays in key.
+pub fn voice_color(pc: PitchClass, v: usize, voices: usize) -> Color {
+    let t = if voices <= 1 { 0.0 } else { v as f32 / (voices - 1) as f32 };
+    rune::oklch(0.72 + 0.20 * t, 0.16 - 0.10 * t, root_hue(pc))
 }
 
 /// Triad: maj m dim aug sus2 sus4. Seventh: maj7 m7 dom7 m7♭5 dim7 7sus4.
@@ -99,7 +153,7 @@ mod tests {
 
     #[test]
     fn palette_hexes_parse() {
-        for h in [BODY, INK, INK_SOFT, CAP, CAP_EDGE, SCREEN] {
+        for h in [BODY, INK, INK_SOFT, CAP, CAP_EDGE, SCREEN, METER_LOW, METER_HOT] {
             assert!(rune::color::hex(h).is_some(), "{h}");
         }
     }

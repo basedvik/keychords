@@ -46,9 +46,9 @@ fn shift_letter_is_sharp() {
 #[test]
 fn us_positions() {
     let m = KeyMap::new(&[]);
-    let sounds = [Phys::Digit1, Phys::Digit2, Phys::Digit3, Phys::Digit4, Phys::Digit5, Phys::Digit6];
-    for (i, p) in sounds.iter().enumerate() {
-        assert_eq!(m.resolve(pos(*p, '?')), Some(Sound(i as u8)));
+    let unused = [Phys::Digit1, Phys::Digit2, Phys::Digit3, Phys::Digit4, Phys::Digit5, Phys::Digit6];
+    for p in unused {
+        assert_eq!(m.resolve(pos(p, '?')), None, "{p:?}");
     }
     let chords = [(Phys::Digit7, Maj), (Phys::Digit8, Min), (Phys::Digit9, Dim), (Phys::Digit0, Aug),
         (Phys::Minus, Dim7), (Phys::Equal, Dom7Sus4), (Phys::BracketLeft, Min6),

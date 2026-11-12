@@ -68,8 +68,6 @@ pub enum KeyAction {
     /// A root letter; `sharp` is true when Shift was held.
     Root { letter: Letter, sharp: bool },
     Quality(Quality),
-    /// Sound preset slot 0..=5 on keys 1..=6.
-    Sound(u8),
     OctaveDown,
     OctaveUp,
     /// Silent slot / stop.
@@ -96,7 +94,7 @@ pub struct KeyInput {
 ///   Y 7♯9, U maj7, I m7, O dom7, P m7♭5, H 7♭9, J sus2, K sus4, L add9, N maj7♯11, M maj9;
 ///   R T V → nothing.
 /// Positions:
-///   Digit1..Digit6 → Sound(0..5); Digit7 maj; Digit8 m; Digit9 dim; Digit0 aug; Minus dim7;
+///   Digit1..Digit6 → nothing; Digit7 maj; Digit8 m; Digit9 dim; Digit0 aug; Minus dim7;
 ///   Equal 7sus4; BracketLeft m6; BracketRight 6/9; Semicolon maj6; Quote m11; Comma m9;
 ///   Period dom9; Slash dom13; Space → Transport; Backquote, Backslash, Other → nothing.
 #[derive(Clone, Debug, Default)]
@@ -160,12 +158,6 @@ impl KeyMap {
 
     fn pos_action(phys: Phys) -> Option<KeyAction> {
         match phys {
-            Phys::Digit1 => Some(KeyAction::Sound(0)),
-            Phys::Digit2 => Some(KeyAction::Sound(1)),
-            Phys::Digit3 => Some(KeyAction::Sound(2)),
-            Phys::Digit4 => Some(KeyAction::Sound(3)),
-            Phys::Digit5 => Some(KeyAction::Sound(4)),
-            Phys::Digit6 => Some(KeyAction::Sound(5)),
             Phys::Digit7 => Some(KeyAction::Quality(Quality::ALL[0])),
             Phys::Digit8 => Some(KeyAction::Quality(Quality::ALL[1])),
             Phys::Digit9 => Some(KeyAction::Quality(Quality::ALL[2])),
@@ -180,7 +172,8 @@ impl KeyMap {
             Phys::Period => Some(KeyAction::Quality(Quality::ALL[14])),
             Phys::Slash => Some(KeyAction::Quality(Quality::ALL[15])),
             Phys::Space => Some(KeyAction::Transport),
-            Phys::Backquote | Phys::Backslash | Phys::Letter | Phys::Other => None,
+            Phys::Backquote | Phys::Backslash | Phys::Letter | Phys::Other | Phys::Digit1
+                | Phys::Digit2 | Phys::Digit3 | Phys::Digit4 | Phys::Digit5 | Phys::Digit6 => None,
         }
     }
 }

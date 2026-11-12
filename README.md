@@ -78,16 +78,16 @@ Each key sets the chord quality. Combined with a root letter, it plays the chord
 
 ### Sound presets
 
-Keys 1–6 select vibes; each sets the sound, glide, strum, reverb and octave at once. The synth has 23 sounds in total.
+The header vibe pills select vibes; each sets the sound, glide, strum, reverb and octave at once. The app opens on **Night drive**. The synth has 23 sounds in total.
 
-| Key | Vibe name | Patch |
-|-----|-----------|-------|
-| 1   | Neo-soul keys | E-piano |
-| 2   | Night drive | GlidePad |
-| 3   | Lo-fi pluck | Pluck |
-| 4   | Glass bells | Bells |
-| 5   | Choir cloud | Choir |
-| 6   | String swell | StringSection |
+| Vibe name | Patch |
+|-----------|-------|
+| Neo-soul keys | E-piano |
+| Night drive | GlidePad |
+| Lo-fi pluck | Pluck |
+| Glass bells | Bells |
+| Choir cloud | Choir |
+| String swell | StringSection |
 
 ### Loop mode controls
 
@@ -98,7 +98,6 @@ Click **Loop** to switch to the loop sequencer. Controls:
 | Left / Right arrow | Move cursor in loop |
 | Tab | Toggle half-bar granularity |
 | Space | Play / stop loop |
-| 1–6 | Select a vibe |
 
 Loop bars cycle 4 → 8 → 16 → 32 via the UI button.
 
@@ -125,4 +124,10 @@ The app creates a virtual MIDI port named `keychords` on macOS (and Linux); on W
 
 ## How it was built
 
-Written by local models (chiz and a Mac mini over a tailnet) orchestrated and reviewed by Claude; see `deploy-plan.md` and `model-quality.md`.
+Built by local models (chiz and a Mac mini over a tailnet), orchestrated and reviewed in opencode with DeepSeek V4.1 Flash; see `deploy-plan.md` and `model-quality.md`.
+
+## Contributors
+
+- chiz (Qwen 3.8 27B)
+- mini (Qwen 3.6 35B A3B, Mac mini over a tailnet)
+- opencode (DeepSeek V4.1 Flash) — UI rewrite, input handling, and sound-preset selector polish

@@ -45,6 +45,10 @@ pub struct Controller {
     pub patch: Patch,
     pub glide_ms: f32,
     pub strum_ms: f32,
+    /// 0..=1 reverb mix, owned here so a vibe and the slider agree.
+    pub reverb: f32,
+    /// The vibe last applied from the header, for the active pill.
+    pub vibe: Option<usize>,
     /// Most recent chords played live, oldest first, for the voice-line view.
     pub history: Vec<(Chord, Voicing)>,
     /// When each `history` entry was played, in seconds of the engine clock.
@@ -63,18 +67,24 @@ pub struct Controller {
 
 impl Controller {
     pub fn new(sample_rate: f64) -> Controller {
+        // The engine opens on `GlidePad`, so open on the vibe that uses it.
+        let mut leader = VoiceLeader::new();
+        let v = crate::vibes::vibes()[1];
+        leader.octave = v.octave;
         Controller {
             keymap: KeyMap::new(&[]),
-            leader: VoiceLeader::new(),
+            leader,
             mode: Mode::Live,
             root: None,
             quality: None,
             accidental: 0,
             replay_quality: false,
             ring: true,
-            patch: Patch::GlidePad,
-            glide_ms: 220.0,
-            strum_ms: 0.0,
+            patch: v.patch,
+            glide_ms: v.glide_ms,
+            strum_ms: v.strum_ms,
+            reverb: v.reverb,
+            vibe: Some(1),
             history: Vec::new(),
             history_at: Vec::new(),
             lp: Loop::new(4, 1),
@@ -136,10 +146,6 @@ impl Controller {
                 self.revoice_loop();
                 Vec::new()
             }
-            KeyAction::Sound(i) => {
-                self.patch = Patch::ALL[i as usize];
-                vec![Command::Patch(self.patch)]
-            }
             KeyAction::Stop => match self.mode {
                 Mode::Live => {
                     self.leader.reset();
@@ -160,6 +166,7 @@ impl Controller {
         self.patch = v.patch;
         self.glide_ms = v.glide_ms;
         self.strum_ms = v.strum_ms;
+        self.reverb = v.reverb;
         self.leader.octave = v.octave;
         self.revoice_loop();
         vec![
@@ -167,6 +174,13 @@ impl Controller {
             self.glide(),
             Command::Reverb(v.reverb),
         ]
+    }
+
+    /// Apply vibe `i` (the header pills) and remember it as the active one.
+    pub fn apply_vibe_at(&mut self, i: usize) -> Vec<Command> {
+        let v = crate::vibes::vibes()[i];
+        self.vibe = Some(i);
+        self.apply_vibe(&v)
     }
 
     /// A key was released. With `ring` off in live mode, letting go of the current chord's
@@ -177,9 +191,10 @@ impl Controller {
             return Vec::new();
         }
         let Some(action) = self.keymap.resolve(input) else { return Vec::new() };
-        if let KeyAction::Root { letter, .. } = action {
+        if let KeyAction::Root { letter, sharp } = action {
             if let Some(current) = self.current() {
-                if letter.pitch_class() == current.0.root {
+                let pc = (letter.pitch_class() as i8 + sharp as i8).rem_euclid(12) as PitchClass;
+                if pc == current.0.root {
                     self.leader.reset();
                     return vec![Command::Release];
                 }
@@ -586,6 +601,17 @@ mod release_tests {
     }
 
     #[test]
+    fn releasing_a_shifted_root_also_stops_it() {
+        let mut c = Controller::new(48_000.0);
+        c.ring = false;
+        let sharp_c = KeyInput { character: Some('c'), phys: keymap::Phys::Letter, shift: true };
+        c.key(sharp_c, 0);
+        c.key(comma(), 0);
+        assert_eq!(c.current().unwrap().0.root, 1, "Shift+C is C#");
+        assert_eq!(c.key_up(sharp_c, 10), vec![Command::Release]);
+    }
+
+    #[test]
     fn unrelated_keys_and_loop_mode_do_nothing() {
         let mut c = Controller::new(48_000.0);
         c.ring = false;
@@ -650,6 +676,14 @@ mod tempo_tests {
 #[cfg(test)]
 mod vibe_tests {
     use super::*;
+
+    #[test]
+    fn opens_on_night_drive_because_the_engine_opens_on_the_pad() {
+        let c = Controller::new(48_000.0);
+        assert_eq!(c.vibe, Some(1));
+        assert_eq!(c.patch, Patch::GlidePad);
+        assert_eq!((c.glide_ms, c.strum_ms, c.reverb), (320.0, 0.0, 0.55));
+    }
     use crate::vibes::vibes;
 
     #[test]
@@ -658,12 +692,21 @@ mod vibe_tests {
         let v = vibes()[3]; // Glass bells: Bells, 200 ms, 60 ms, 0.5, octave +1
         let cmds = c.apply_vibe(&v);
         assert_eq!(c.patch, synth::Patch::Bells);
-        assert_eq!((c.glide_ms, c.strum_ms, c.leader.octave), (200.0, 60.0, 1));
+        assert_eq!((c.glide_ms, c.strum_ms, c.leader.octave, c.reverb), (200.0, 60.0, 1, 0.5));
         assert_eq!(cmds, vec![
             Command::Patch(synth::Patch::Bells),
             Command::Glide { glide_ms: 200.0, strum_ms: 60.0 },
             Command::Reverb(0.5),
         ]);
+    }
+
+    #[test]
+    fn applying_a_vibe_by_index_marks_it_active() {
+        let mut c = Controller::new(48_000.0);
+        let cmds = c.apply_vibe_at(2);
+        assert_eq!(c.vibe, Some(2));
+        assert_eq!(c.patch, synth::Patch::Pluck);
+        assert_eq!(cmds.last().copied(), Some(Command::Reverb(0.30)));
     }
 
     #[test]

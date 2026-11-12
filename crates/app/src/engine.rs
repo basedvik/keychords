@@ -51,7 +51,6 @@ pub enum Command {
     Release,
     Glide { glide_ms: f32, strum_ms: f32 },
     Patch(Patch),
-    VolumeDb(f32),
     OwnSound(bool),
     Midi(MidiMode),
     /// 0..=1 reverb mix.
@@ -131,7 +130,6 @@ impl Engine {
                 self.glider.set_params(Params { glide_ms, strum_ms, sample_rate: self.sample_rate });
             }
             Command::Patch(p) => self.synth.set_patch(p),
-            Command::VolumeDb(db) => self.synth.set_volume_db(db),
             Command::Reverb(mix) => self.reverb.mix = mix.clamp(0.0, 1.0),
             Command::OwnSound(on) => self.own_sound = on,
             Command::Midi(mode) => {
