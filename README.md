@@ -2,15 +2,40 @@
 
 A standalone Rust app (Rune UI) that plays full chords from two computer keys — a letter (A–G) for the root and another key for the chord type — and glides every voice into the next chord with smooth voice leading; it sends MIDI out over a virtual port to a DAW or synth.
 
-## Build and run
+## Build it yourself
 
-Requires Rust from `rust-toolchain.toml` (channel 1.99.1, with clippy and rustfmt).
+No installer, no account, no downloaded release needed — just Rust and the repo.
+
+1. Install Rust from [rustup.rs](https://rustup.rs) if you don't have it. The `rust-toolchain.toml` pins Rust 1.99.1, and rustup will fetch it automatically.
+2. Clone and enter the repo:
+
+   ```bash
+   git clone https://github.com/basedvik/keychords.git
+   cd keychords
+   ```
+
+3. Build the standalone binary:
+
+   ```bash
+   cargo build -p app --release
+   ```
+
+   The first build pulls Rune from git and takes a few minutes.
+
+4. Run it:
+
+   ```bash
+   ./target/release/keychords
+   ```
+
+That binary is self-contained — copy it wherever you like. On Linux you'll need ALSA headers first (`sudo apt install libasound2-dev`, or `sudo dnf install alsa-lib-devel` on Fedora); macOS needs nothing extra.
+
+Handy extras:
 
 ```bash
-cargo run -p app --release
-cargo test --workspace
-# headless screenshot
-cargo run -p app -- --snap out.png --scene demo
+cargo test --workspace              # all tests
+cargo run -p app --release          # build and run in one step
+cargo run -p app -- --snap out.png --scene demo  # headless screenshot
 ```
 
 ## Playing
